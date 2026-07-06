@@ -1,0 +1,7 @@
+pytest==8.*              # runner central
+pytest-cov==5.*          # cobertura — saber o que está EXERCITADO (≠ verificado; ver §9)
+pytest-mock==3.*         # wrapper ergonômico sobre unittest.mock (fixture `mocker`)
+hypothesis==6.*          # testes baseados em propriedade — o diferencial (ver abaixo)
+jsonschema==4.*          # validar o schema da tree.json e do vcmr_preds.json
+pytest-randomly==3.*     # randomiza ordem dos testes → detecta vazamento de estado entre testes
+pytest-xdist==3.*        # paralelismo (opcional; -n auto)

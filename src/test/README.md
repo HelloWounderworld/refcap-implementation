@@ -1,1 +1,0 @@
-# Para cada funcionalidade existente nesse repositorio iremos criar um teste isolado e automatizado para conferirmos se o algoritmo esta funcionando conforme o que precisamos!!
