@@ -1,0 +1,1 @@
+# artefatos sintéticos pequenos (versionados)

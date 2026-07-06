@@ -11,3 +11,11 @@ results/
 *.pyc
 */__pycache__/
 *.venv
+
+# Scratch é exploração descartável — não versione (exceto o substrato, se quiser)
+scratch/*
+!scratch/_bootstrap.py
+
+results/
+tests/data/micro_corpus/*
+!tests/data/micro_corpus/.gitkeep

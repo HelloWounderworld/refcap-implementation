@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest (T0)
+        entry: pytest tests/unit -q
+        language: system
+        pass_filenames: false
+        always_run: true
+      

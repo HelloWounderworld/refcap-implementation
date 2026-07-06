@@ -1,0 +1,1 @@
+# T2 — modelos reais, micro-corpus (marcado @slow @gpu)

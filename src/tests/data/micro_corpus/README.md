@@ -1,0 +1,1 @@
+# 5–10 vídeos SEUS (só para T2; NÃO versionar vídeos grandes)

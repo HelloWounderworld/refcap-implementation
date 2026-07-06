@@ -1,0 +1,9 @@
+[run]
+source = pipeline,utils,dataset
+omit =
+    */genCaptions_minigpt.py   # script externo, não testável isoladamente
+    */__init__.py
+
+[report]
+show_missing = True
+skip_covered = False
