@@ -91,7 +91,7 @@ O `start_inference()` (linha 236) monta a recuperação em quatro objetos (linha
 ```python
 pretrained_models = load_pretrained_models(cfg)
 captree           = CapTree(cfg, tree_meta_path, pretrained_models)   # carrega o índice
-test_dataset      = DataSet4Test(gt_anno_path, captree_meta=...)       # consultas + gabarito
+test_dataset      = DataSet4Test(gt_anno_path, captree_meta=...)       # consultas + gabarito -> Aqui que seria, provavelmente, onde podemos substituir as "desc" da "annos" para uma query que sera recebido para fazer a inferencia.
 captree.compute_tree_feature(...)                                      # codifica o índice
 infer_pipeline    = get_retrievepipe_class(cfg.retrieve_pipeline)(...) # sent | key | mix
 eval_epoch(infer_pipeline, test_dataset, cfg)                          # roda e avalia
