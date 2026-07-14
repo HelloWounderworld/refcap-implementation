@@ -21,17 +21,17 @@ glove_model=meta/glove.6B/glove.6B.300d.txt
 echo $retrieve_name
 
 python retrieve.py \
---stage $stage \
---seed $seed \
---collection $collection \
---construct_name $construct_name \
---retrieve_name $retrieve_name \
---retrieve_pipeline $retrieve_pipeline \
---eval_query_bsz $eval_query_bsz \
---max_vcmr_props $max_vcmr_props \
---retrieve_sent_ratio $retrieve_sent_ratio \
---caption_model $caption_model \
---blip_itm_model $blip_itm_model \
---sentence_transformer $sentence_transformer \
---glove_model $glove_model \
---key_policy $key_policy
+    --stage $stage \
+    --seed $seed \
+    --collection $collection \
+    --construct_name $construct_name \
+    --retrieve_name $retrieve_name \
+    --retrieve_pipeline $retrieve_pipeline \
+    --eval_query_bsz $eval_query_bsz \
+    --max_vcmr_props $max_vcmr_props \
+    --retrieve_sent_ratio $retrieve_sent_ratio \
+    --caption_model $caption_model \
+    --blip_itm_model $blip_itm_model \
+    --sentence_transformer $sentence_transformer \
+    --glove_model $glove_model \
+    --key_policy $key_policy
