@@ -1,5 +1,22 @@
 # Lista de duvidas:
 
+## Duvida 0:
+Poderia, primeiro, me explicar como o repositorio, https://github.com/BUAAPY/RefCap, esta estruturado do ponto de vista da arquitetura?
+
+Alem disso, eu preciso que voce ajude a levar em consideracao o conceito de arquitetura limpa do livro, Clean Architecture with Python: Implement scalable and maintainable applications using proven architectural principles (https://github.com/PacktPublishing/Clean-Architecture-with-Python), do autor, Sam Keen, para tu me ajudar a entender se, desse ponto de vista da arquitetura limpa, a estrutura do repositorio esta bom ou se existem pontos em que o repositorio ela esta pecando?
+
+Alem disso, do ponto de vista do conceito sobre clean code do livro, Clean Code in Python: Develop maintainable and efficient code, 2nd Edition (https://github.com/packtpublishing/clean-code-in-python), do autor, Mariano Anaya, eu gostaria de saber ate que ponto a estrutura dos algoritmos estao satisfazendo as boas praticas de clean code e, onde, elas estao pecando?
+
+Antes de comecar a explicacao, eu gostaria que voce me ajude a criar um relatorio bem detalhado, sobre as boas praticas de um codigo limpo e arquitetura limpa, baseando dos conceitos apresentados dos autores que eu levantei acima. Pretendo deixar colado isso, dentro do meu repositorio como se fosse os mandamentos que devemos seguir para manter as boas praticas de codigo e arquitetura, de modo que isso me sirva para recalejar a mim, do ponto de vista manual, de modo que eu consiga, se necessario, sem o uso de uma IA, criar os codigos e a arquitetura inteira de um sistema de maneira manual!!
+
+Bom, pretendo aproveitar esse cenario em que eu terei bastante tempo disponivel para analisar a fundo o codigo e entender o coracao desse sistema, para revisar as minhas habilidades e leitura e compreensao das sintaxes do Python e recalejar a minha capacidade para realizar as leituras e entender a logica de programacao dessa linguagem!! Bom, o objetivo esta mais para reativar a minha capacidade de leitura das sintaxes de maneira fluida! Em algums passos, como uma pratica de revisao, eu irei reproduzir a logica manualmente, de maneira bastante simples, para ir recalejando a minha capacidade de coding!!
+
+Primeiro, vamos focar na construcao do relatorio bastante detalhado sobre as boas praticas de clean code!!
+
+Quero que voce realize uma leitura profunda e analise profunda das bibliografias dos autores que eu levantei a respeito do assunto, de modo que, no final, voces consigam me fornecer um relatorio bastante detalhado do que eu devo seguir como boas praticas para conseguir ir mantendo a minha habilidade de analise dos codigos e escrita dos codigos bastante calejado, sem ter que ficar dependendo puramente do vibe coding!!
+
+Basicamente, o vibe coding, precisa estar claro dentro de mim os momentos convenientes para se utilizar nos cenarios atuais em que vivemos!!
+
 ## Duvida 1:
 No trecho abaixo:
 
@@ -13,8 +30,6 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'          # FORÇA a GPU 0
 ````
 
 Se eu tornar o "os.environ["TOKENIZERS_PARALLELISM"] = "false"   # silencia aviso do tokenizer" para "true", que tipo de efeito ocorreria?
-
-Bom, pretendo aproveitar esse cenario em que eu terei bastante tempo disponivel para analisar a fundo o codigo e entender o coracao desse sistema, para revisar as minhas habilidades e leitura e compreensao das sintaxes do Python e recalejar a minha capacidade para realizar as leituras e entender a logica de programacao dessa linguagem!! Bom, o objetivo esta mais para reativar a minha capacidade de leitura das sintaxes de maneira fluida! Em algums passos, como uma pratica de revisao, eu irei reproduzir a logica manualmente, de maneira bastante simples, para ir recalejando a minha capacidade de coding!!
 
 ## Duvida 2:
 No trecho abaixo:
@@ -42,7 +57,9 @@ construct_pipeline = get_constructpipe_class(cfg.construct_pipeline)(cfg, captio
 **O que faz:** `get_capgen_class("blip")` resolve, via *registry*, a classe `CapGeneratorBLIP`. **É esta a instância que dissecará os vídeos e chamará o BLIP.** Ela é injetada no pipeline de construção.
 ````
 
-Me ajuda e entender melhor a funcao "get_capgen_class(cfg.caption_generator)(cfg, pretrained_models)". Eu sei que ele eh um tipo de funcao que retorna funcao... Mas nao lembro muito bem a sua logica de programacao e eu quero que voce me ajude a explicar melhor sobre. Eh mais para revisar e refinar a minha analise e a logica de programacao, pois, do ponto de vista puramente logico e teoico, deve ser algo bastante simples, mas olhando isso sintaticamente e algoritcamente eu estou ainda com dificuldade de entender como ele esta expressando essa logica que eu nao lembro...
+Me ajuda e entender melhor a funcao "get_capgen_class(cfg.caption_generator)(cfg, pretrained_models)". Eu sei que ele eh um tipo de funcao que retorna funcao... Mas nao lembro muito bem a sua logica de programacao e eu quero que voce me ajude a explicar melhor sobre. Eh mais para revisar e refinar a minha analise e a logica de programacao, pois, do ponto de vista puramente logico e teoico, deve ser algo bastante simples, mas olhando isso sintaticamente e algoritcamente eu estou ainda com dificuldade de entender como ele esta expressando essa logica que eu nao lembro... Eu gostaria de um guia de um teste para entender como esse tipo de funcao funciona como logica!!
+
+Alem disso, preciso entender por qual motivo essa funcao foi escolhida para ser aplicado nesse cenario. Qual a finalidade e a importancia que ela exerce para ter que ter sido esse tipo de formato de aplicacao!!
 
 Deixarei em anexo o arquivo, base.py, que eh onde esta sendo chamado a funcao "get_capgen_class(cfg.caption_generator)(cfg, pretrained_models)".
 
