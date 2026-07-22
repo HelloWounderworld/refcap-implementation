@@ -70,7 +70,7 @@ Vinte aforismos que guiam o design da linguagem. Os que mais importam na prátic
 
 ---
 
-#### 5. "Flat is better than nested." (*Plano é melhor que aninhado.*)
+#### [5. "Flat is better than nested." (*Plano é melhor que aninhado.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen05)
 
 **O que significa:** evite aninhamento profundo de controle. Prefira estruturas planas — cláusulas de guarda, *early return*, extração de funções — a pirâmides de `if`/`for`/`try` encaixados.
 
@@ -100,7 +100,7 @@ def processar(x):
 
 ---
 
-#### 6. "Sparse is better than dense." (*Esparso é melhor que denso.*)
+#### [6. "Sparse is better than dense." (*Esparso é melhor que denso.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen06)
 
 **O que significa:** não comprima muitas operações numa linha ou expressão. Dê espaço ao código — idealmente, uma ideia por linha.
 
@@ -120,7 +120,7 @@ resultado = transformados[:10]
 
 ---
 
-#### 7. "Readability counts." (*Legibilidade conta.*)
+#### [7. "Readability counts." (*Legibilidade conta.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen07)
 
 **O que significa:** a legibilidade é o critério de desempate final. Entre o esperto e o legível, escolha o legível.
 
@@ -130,11 +130,11 @@ resultado = transformados[:10]
 
 ---
 
-#### 8. "Special cases aren't special enough to break the rules." (*Casos especiais não são especiais o bastante para quebrar as regras.*)
+#### [8. "Special cases aren't special enough to break the rules." (*Casos especiais não são especiais o bastante para quebrar as regras.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen08)
 
 ---
 
-#### 9. "Although practicality beats purity." (*Embora a praticidade vença a pureza.*)
+#### [9. "Although practicality beats purity." (*Embora a praticidade vença a pureza.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen09)
 
 > **★ Par de ressalva — e o coração anti-dogmático do Zen.** Estes dois vêm juntos e se limitam mutuamente. Leia-os como uma unidade.
 
@@ -150,11 +150,11 @@ resultado = transformados[:10]
 
 ---
 
-#### 10. "Errors should never pass silently." (*Erros nunca deveriam passar silenciosamente.*)
+#### [10. "Errors should never pass silently." (*Erros nunca deveriam passar silenciosamente.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen10)
 
 ---
 
-#### 11. "Unless explicitly silenced." (*A menos que explicitamente silenciados.*)
+#### [11. "Unless explicitly silenced." (*A menos que explicitamente silenciados.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen11)
 
 > **★ Par de ressalva.** O segundo limita o primeiro.
 
@@ -175,7 +175,7 @@ except FileNotFoundError:
 
 ---
 
-#### 12. "In the face of ambiguity, refuse the temptation to guess." (*Na face da ambiguidade, recuse a tentação de adivinhar.*)
+#### [12. "In the face of ambiguity, refuse the temptation to guess." (*Na face da ambiguidade, recuse a tentação de adivinhar.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen12)
 
 **O que significa:** quando o comportamento ou os requisitos são ambíguos, não escolha silenciosamente uma interpretação e a cimente no código. Torne a ambiguidade explícita — falhe alto, ou force quem chama a especificar.
 
@@ -193,11 +193,11 @@ Python não adivinha uma coerção entre tipos incompatíveis — ele para e for
 
 ---
 
-#### 13. "There should be one—and preferably only one—obvious way to do it." (*Deveria haver uma — e de preferência só uma — maneira óbvia de fazer.*)
+#### [13. "There should be one—and preferably only one—obvious way to do it." (*Deveria haver uma — e de preferência só uma — maneira óbvia de fazer.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen13)
 
 ---
 
-#### 14. "Although that way may not be obvious at first unless you're Dutch." (*Embora essa maneira possa não ser óbvia à primeira vista, a menos que você seja holandês.*)
+#### [14. "Although that way may not be obvious at first unless you're Dutch." (*Embora essa maneira possa não ser óbvia à primeira vista, a menos que você seja holandês.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen14)
 
 > **★ Par (com uma piada que esconde uma lição).**
 
@@ -213,11 +213,11 @@ Python não adivinha uma coerção entre tipos incompatíveis — ele para e for
 
 ---
 
-#### 15. "Now is better than never." (*Agora é melhor que nunca.*)
+#### [15. "Now is better than never." (*Agora é melhor que nunca.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen15)
 
 ---
 
-#### 16. "Although never is often better than *right* now." (*Embora nunca seja frequentemente melhor que **agora mesmo**.*)
+#### [16. "Although never is often better than *right* now." (*Embora nunca seja frequentemente melhor que **agora mesmo**.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen16)
 
 > **★ Par de ressalva — sobre ação vs. pressa.**
 
@@ -233,11 +233,11 @@ Python não adivinha uma coerção entre tipos incompatíveis — ele para e for
 
 ---
 
-#### 17. "If the implementation is hard to explain, it's a bad idea." (*Se a implementação é difícil de explicar, é uma má ideia.*)
+#### [17. "If the implementation is hard to explain, it's a bad idea." (*Se a implementação é difícil de explicar, é uma má ideia.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen17)
 
 ---
 
-#### 18. "If the implementation is easy to explain, it may be a good idea." (*Se a implementação é fácil de explicar, pode ser uma boa ideia.*)
+#### [18. "If the implementation is easy to explain, it may be a good idea." (*Se a implementação é fácil de explicar, pode ser uma boa ideia.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen18)
 
 > **★ Par — com uma assimetria reveladora.**
 
@@ -251,7 +251,7 @@ Python não adivinha uma coerção entre tipos incompatíveis — ele para e for
 
 ---
 
-#### 19. "Namespaces are one honking great idea—let's do more of those!" (*Namespaces são uma ideia genial pra caramba — vamos usar mais!*)
+#### [19. "Namespaces are one honking great idea—let's do more of those!" (*Namespaces são uma ideia genial pra caramba — vamos usar mais!*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen19)
 
 **O que significa:** use namespaces (módulos, classes, escopos explícitos) para organizar e desambiguar nomes. Prefira `modulo.funcao` a despejar tudo num namespace global.
 
@@ -263,7 +263,7 @@ Python não adivinha uma coerção entre tipos incompatíveis — ele para e for
 
 ---
 
-### [PEP 8 — O guia de estilo](https://peps.python.org/pep-0008/)
+### [PEP 8 — O guia de estilo](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep8)
 As convenções de formatação: `snake_case` para funções e variáveis, `PascalCase` para classes, `UPPER_CASE` para constantes, 4 espaços de indentação, ~79-99 caracteres por linha, imports organizados (stdlib → terceiros → locais). **Não decore isto — use um formatador automático** (`black`, `ruff`). A questão não é memorizar regras de espaçamento; é que o estilo consistente reduz a carga cognitiva de leitura. Deixe a máquina cuidar do estilo para você focar na lógica.
 
 > **Princípio:** o estilo não é sobre estética — é sobre *previsibilidade*. Código que segue as convenções da linguagem é lido no piloto automático; código idiossincrático exige atenção a cada linha.
