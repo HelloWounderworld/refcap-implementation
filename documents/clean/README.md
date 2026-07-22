@@ -33,7 +33,7 @@ O domínio de Anaya: como cada linha, função e classe deve ser escrita em Pyth
 
 Python tem uma filosofia própria, codificada em dois documentos que você deveria conhecer de cor.
 
-### PEP (Python Enhancement Proposals) 20 — O Zen of Python (`import this`)
+### [PEP (Python Enhancement Proposals) 20 — O Zen of Python (`import this`)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/peps_codes/pep20)
 Os **19 aforismos** ([PEP 20](https://peps.python.org/pep-0020/)) que guiam o design da linguagem (são 19 escritos — o "20º" é uma piada de Tim Peters, deixado em branco). O conjunto completo, cada um com porquê e limite, está no tratado dedicado `ZEN_OF_PYTHON_Tratado_Completo.md`. Aqui, uma amostra dos de maior peso prático:
 
 - **"Explicit is better than implicit."** Não esconda comportamento. Uma função que altera estado global silenciosamente viola isto. (Guarde este — o RefCap o viola de forma exemplar, §III.)
@@ -43,7 +43,7 @@ Os **19 aforismos** ([PEP 20](https://peps.python.org/pep-0020/)) que guiam o de
 - **"Errors should never pass silently. Unless explicitly silenced."** Não engula exceções. Um `except: pass` mudo é quase sempre um bug esperando acontecer.
 - **"There should be one—and preferably only one—obvious way to do it."** Python valoriza convenção. Siga os idiomas estabelecidos em vez de inventar os seus.
 
-### PEP 8 — O guia de estilo
+### [PEP 8 — O guia de estilo](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/peps_codes/pep8)
 As convenções de formatação ([PEP 8](https://peps.python.org/pep-0008/); docstrings na [PEP 257](https://peps.python.org/pep-0257/)): `snake_case` para funções e variáveis, `PascalCase` para classes, `UPPER_CASE` para constantes, 4 espaços de indentação, ~79-99 caracteres por linha, imports organizados (stdlib → terceiros → locais). **Não decore isto — use um formatador automático** (`black`, `ruff`). A questão não é memorizar regras de espaçamento; é que o estilo consistente reduz a carga cognitiva de leitura. Deixe a máquina cuidar do estilo para você focar na lógica.
 
 > **Princípio:** o estilo não é sobre estética — é sobre *previsibilidade*. Código que segue as convenções da linguagem é lido no piloto automático; código idiossincrático exige atenção a cada linha.
