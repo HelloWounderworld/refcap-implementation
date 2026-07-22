@@ -25,7 +25,7 @@ Há uma assimetria cruel aqui: **o código sujo parece mais rápido no curto pra
 
 ---
 
-# [PARTE I — CLEAN CODE (o nível micro)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/code)
+# [PARTE I — CLEAN CODE (o nível micro)](https://github.com/HelloWounderworld/clean_system/tree/main/pep/code)
 
 O domínio de Anaya: como cada linha, função e classe deve ser escrita em Python especificamente.
 
@@ -33,8 +33,8 @@ O domínio de Anaya: como cada linha, função e classe deve ser escrita em Pyth
 
 Python tem uma filosofia própria, codificada em dois documentos que você deveria conhecer de cor.
 
-### [PEP (Python Enhancement Proposals) 20 — O Zen of Python (`import this`)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/peps_codes/pep20)
-Os **19 aforismos** ([PEP 20](https://peps.python.org/pep-0020/)) que guiam o design da linguagem (são 19 escritos — o "20º" é uma piada de Tim Peters, deixado em branco). O conjunto completo, cada um com porquê e limite, está no tratado dedicado `ZEN_OF_PYTHON_Tratado_Completo.md`. Aqui, uma amostra dos de maior peso prático:
+### [PEP (Python Enhancement Proposals) 20 — O Zen of Python (`import this`)](https://github.com/HelloWounderworld/clean_system/tree/main/pep/peps_codes/pep20)
+Os **19 aforismos** ([PEP 20](https://peps.python.org/pep-0020/)) que guiam o design da linguagem (são 19 escritos — o "20º" é uma piada de Tim Peters, deixado em branco). O conjunto completo, cada um com porquê e limite, está no tratado dedicado [`ZEN_OF_PYTHON_Tratado_Completo.md`](https://github.com/HelloWounderworld/clean_system/tree/main/pep/peps_codes/pep20). Aqui, uma amostra dos de maior peso prático:
 
 - **"Explicit is better than implicit."** Não esconda comportamento. Uma função que altera estado global silenciosamente viola isto. (Guarde este — o RefCap o viola de forma exemplar, §III.)
 - **"Simple is better than complex. Complex is better than complicated."** Prefira a solução simples. Se precisar de complexidade, que seja *complexa* (muitas partes simples e claras), não *complicada* (emaranhada).
@@ -43,7 +43,7 @@ Os **19 aforismos** ([PEP 20](https://peps.python.org/pep-0020/)) que guiam o de
 - **"Errors should never pass silently. Unless explicitly silenced."** Não engula exceções. Um `except: pass` mudo é quase sempre um bug esperando acontecer.
 - **"There should be one—and preferably only one—obvious way to do it."** Python valoriza convenção. Siga os idiomas estabelecidos em vez de inventar os seus.
 
-### [PEP 8 — O guia de estilo](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/peps_codes/pep8)
+### [PEP 8 — O guia de estilo](https://github.com/HelloWounderworld/clean_system/tree/main/pep/peps_codes/pep8)
 As convenções de formatação ([PEP 8](https://peps.python.org/pep-0008/); docstrings na [PEP 257](https://peps.python.org/pep-0257/)): `snake_case` para funções e variáveis, `PascalCase` para classes, `UPPER_CASE` para constantes, 4 espaços de indentação, ~79-99 caracteres por linha, imports organizados (stdlib → terceiros → locais). **Não decore isto — use um formatador automático** (`black`, `ruff`). A questão não é memorizar regras de espaçamento; é que o estilo consistente reduz a carga cognitiva de leitura. Deixe a máquina cuidar do estilo para você focar na lógica.
 
 > **Princípio:** o estilo não é sobre estética — é sobre *previsibilidade*. Código que segue as convenções da linguagem é lido no piloto automático; código idiossincrático exige atenção a cada linha.
@@ -80,7 +80,12 @@ Como saber se faz "uma coisa"? **Se você consegue extrair outra função dela c
 - **Command-Query Separation.** Uma função ou *faz* algo (comando, muda estado) ou *responde* algo (query, retorna valor) — não ambos. `if set_e_verificar_atributo("x")` é confuso.
 - **Prefira exceções a códigos de erro** (veja §5).
 
-**Do átomo à molécula — classes, coesão e encapsulamento:** se funções são o átomo, classes são a molécula. Duas regras fecham o tópico. **(1) Coesão:** os métodos e atributos de uma classe devem estar fortemente relacionados, servindo a *uma* responsabilidade — o oposto da "classe balde" que acumula funções não relacionadas. Sinal de baixa coesão: se metade dos métodos usa um subconjunto de atributos e a outra metade usa outro subconjunto disjunto, a classe quer ser *duas*. **(2) Encapsulamento:** exponha o mínimo; esconda o que pode mudar. Em Python, o prefixo `_` é a convenção de "isto é interno, não dependa disso" — não imposto, mas respeitado ("somos todos adultos aqui"). **Cuidado com um equívoco comum (Anaya):** o prefixo `__` (duplo) **não** cria privacidade — ele faz *name mangling* (renomeia `__x` para `_Classe__x` internamente, para evitar colisões em herança). Usar `__` achando que "torna privado" é um erro; para sinalizar "interno", use `_` (simples). *(Tratado de Código Limpo, Cap. 9.)*
+**Do átomo à molécula — classes, coesão e encapsulamento:** se funções são o átomo, classes são a molécula. Duas regras fecham o tópico.
+
+- **(1) Coesão:** os métodos e atributos de uma classe devem estar fortemente relacionados, servindo a *uma* responsabilidade — o oposto da "classe balde" que acumula funções não relacionadas. **Sinal de baixa coesão:** se metade dos métodos usa um subconjunto de atributos e a outra metade usa outro subconjunto disjunto, a classe quer ser *duas*.
+- **(2) Encapsulamento:** exponha o mínimo; esconda o que pode mudar. Em Python, o prefixo `_` é a convenção de "isto é interno, não dependa disso" (**O que isso significa?**) — não imposto, mas respeitado ("somos todos adultos aqui").
+
+**Cuidado com um equívoco comum (Anaya):** o prefixo `__` (duplo) **não** cria privacidade — ele faz *name mangling* (renomeia `__x` para `_Classe__x` internamente, para evitar colisões em herança). Usar `__` achando que "torna privado" é um erro; para sinalizar "interno", use `_` (simples). *(Tratado de Código Limpo, Cap. 9.)*
 
 ## 4. Comentários e docstrings
 
@@ -214,7 +219,7 @@ Código sem testes não pode ser refatorado com confiança — e código que nã
 
 ---
 
-# [PARTE II — CLEAN ARCHITECTURE (o nível macro)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/architecture)
+# [PARTE II — CLEAN ARCHITECTURE (o nível macro)](https://github.com/HelloWounderworld/clean_system/tree/main/pep/architecture)
 
 O domínio de Keen: como organizar as *dependências* de um sistema inteiro para que ele permaneça maleável. Se o clean code é sobre escrever bem cada tijolo, a clean architecture é sobre onde colocar as paredes.
 
