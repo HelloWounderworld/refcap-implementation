@@ -34,7 +34,7 @@ Python tem uma filosofia própria, codificada em dois documentos que você dever
 ### PEP 20 — O Zen of Python (`import this`)
 Vinte aforismos que guiam o design da linguagem. Os que mais importam na prática:
 
-#### [**"Explicit is better than implicit."** Não esconda comportamento. Uma função que altera estado global silenciosamente viola isto. (Guarde este - o RefCap o viola de forma exemplar, §III.)](C:\Users\teramatsu.l-st\Documents\review-content\refcap-implementation\documents\clean\examples\pep20\pep01\README.md)
+- [**"Explicit is better than implicit."** Não esconda comportamento. Uma função que altera estado global silenciosamente viola isto. (Guarde este - o RefCap o viola de forma exemplar, §III.)](https://github.com/HelloWounderworld/refcap-implementation/blob/main/documents/clean/examples/pep20/pep01/README.md)
 - **"Simple is better than complex. Complex is better than complicated."** Prefira a solução simples. Se precisar de complexidade, que seja *complexa* (muitas partes simples e claras), não *complicada* (emaranhada).
 - **"Flat is better than nested."** Evite aninhamento profundo. Três `for` dentro de dois `if` dentro de um `try` é um sinal de que algo precisa virar uma função.
 - **"Readability counts."** O critério final. Se você tem que escolher entre esperto e legível, escolha legível.
