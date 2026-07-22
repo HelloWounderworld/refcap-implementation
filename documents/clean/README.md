@@ -15,11 +15,11 @@
 
 Antes das regras, o *porquê*, porque regras sem princípio viram dogma.
 
-**O custo do software não está em escrevê-lo — está em mantê-lo.** Um sistema é escrito uma vez e modificado centenas de vezes: correções, novas features, adaptações. O gargalo de todo esse trabalho futuro é uma coisa só: **quanto tempo leva para entender o código antes de mudá-lo com segurança.** Código limpo minimiza esse tempo. Código sujo o multiplica, até o ponto em que "é mais fácil reescrever do que entender" — a morte de um projeto.
+**O custo do software não está em escrevê-lo - está em mantê-lo.** Um sistema é escrito uma vez e modificado centenas de vezes: correções, novas features, adaptações. O gargalo de todo esse trabalho futuro é uma coisa só: **quanto tempo leva para entender o código antes de mudá-lo com segurança.** Código limpo minimiza esse tempo. Código sujo o multiplica, até o ponto em que "é mais fácil reescrever do que entender" - a morte de um projeto.
 
-Há uma assimetria cruel aqui: **o código sujo parece mais rápido no curto prazo.** Você entrega a feature hoje. Mas cada atalho é um empréstimo com juros — a *dívida técnica*. E os juros são pagos por você, em três meses, quando não lembrar mais por que aquela função tem sete parâmetros e um efeito colateral escondido. **Clean code é disciplina de pagar à vista.**
+Há uma assimetria cruel aqui: **o código sujo parece mais rápido no curto prazo.** Você entrega a feature hoje. Mas cada atalho é um empréstimo com juros - a *dívida técnica*. E os juros são pagos por você, em três meses, quando não lembrar mais por que aquela função tem sete parâmetros é um efeito colateral escondido. **Clean code é disciplina de pagar à vista.**
 
-**A regra de ouro operacional:** deixe o código mais limpo do que você o encontrou. Não precisa refatorar o mundo — só não pioré-lo. É o princípio do escoteiro (*Boy Scout Rule*): "deixe o acampamento mais limpo do que você o achou".
+**A regra de ouro operacional:** deixe o código mais limpo do que você o encontrou. Não precisa refatorar o mundo - só não pioré-lo. É o princípio do escoteiro (*Boy Scout Rule*): "deixe o acampamento mais limpo do que você o achou".
 
 ---
 
@@ -34,7 +34,7 @@ Python tem uma filosofia própria, codificada em dois documentos que você dever
 ### PEP 20 — O Zen of Python (`import this`)
 Vinte aforismos que guiam o design da linguagem. Os que mais importam na prática:
 
-- **"Explicit is better than implicit."** Não esconda comportamento. Uma função que altera estado global silenciosamente viola isto. (Guarde este — o RefCap o viola de forma exemplar, §III.)
+- [**"Explicit is better than implicit."** Não esconda comportamento. Uma função que altera estado global silenciosamente viola isto. (Guarde este - o RefCap o viola de forma exemplar, §III.)](C:\Users\teramatsu.l-st\Documents\review-content\refcap-implementation\documents\clean\examples\pep20\pep01\README.md)
 - **"Simple is better than complex. Complex is better than complicated."** Prefira a solução simples. Se precisar de complexidade, que seja *complexa* (muitas partes simples e claras), não *complicada* (emaranhada).
 - **"Flat is better than nested."** Evite aninhamento profundo. Três `for` dentro de dois `if` dentro de um `try` é um sinal de que algo precisa virar uma função.
 - **"Readability counts."** O critério final. Se você tem que escolher entre esperto e legível, escolha legível.
