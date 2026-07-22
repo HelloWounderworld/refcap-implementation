@@ -34,7 +34,7 @@ Python tem uma filosofia própria, codificada em dois documentos que você dever
 ### [PEP 20 — O Zen of Python (`import this`)](https://peps.python.org/pep-0020/)
 Vinte aforismos que guiam o design da linguagem. Os que mais importam na prática:
 
-#### 1. "Beautiful is better than ugly." (*Belo é melhor que feio.*)
+#### [1. "Beautiful is better than ugly." (*Belo é melhor que feio.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen01)
 
 **O que significa:** prefira código agradável de ler — estrutura clara, estilo consistente, nomes limpos, organização coerente.
 
@@ -44,7 +44,7 @@ Vinte aforismos que guiam o design da linguagem. Os que mais importam na prátic
 
 ---
 
-#### 2. "Explicit is better than implicit." (*Explícito é melhor que implícito.*)
+#### [2. "Explicit is better than implicit." (*Explícito é melhor que implícito.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen02)
 
 **O essencial:** não deixe o código fazer, escondido, o que a sua superfície não anuncia. O leitor constrói um modelo mental a partir do que está visível; comportamento implícito fica fora desse modelo, e a distância entre o modelo e o comportamento real é onde os bugs vivem.
 
@@ -56,11 +56,11 @@ Vinte aforismos que guiam o design da linguagem. Os que mais importam na prátic
 
 ---
 
-#### 3. "Simple is better than complex." (*Simples é melhor que complexo.*)
+#### [3. "Simple is better than complex." (*Simples é melhor que complexo.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen03)
 
 ---
 
-#### 4. "Complex is better than complicated." (*Complexo é melhor que complicado.*)
+#### [4. "Complex is better than complicated." (*Complexo é melhor que complicado.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen04)
 
 **O essencial (os dois juntos 3. e 4.):** há três níveis numa ordem estrita — *simples > complexo > complicado*. **Complexo** = muitas partes, cada uma simples, que se separam (um relógio). **Complicado** = partes emaranhadas que não se separam (um nó). A raiz é a distinção de Brooks entre complexidade *essencial* (imposta pelo problema, irredutível) e *acidental* (adicionada pelo design, removível): remova toda a acidental (chegue ao complexo), e remova a própria complexidade quando ela também for acidental (chegue ao simples).
 
