@@ -3,11 +3,13 @@
 
 ---
 
-> **O que é este documento.** Um guia de referência, para colar no seu repositório, sobre as boas práticas de **código limpo** (nível micro: como escrever cada função, classe, nome) e **arquitetura limpa** (nível macro: como organizar as dependências de um sistema inteiro). É destilado do cânone estabelecido da engenharia de software — os princípios sistematizados por Robert C. Martin (*Clean Code*, *Clean Architecture*), a leitura Pythônica de Mariano Anaya (*Clean Code in Python*), a aplicação arquitetural de Sam Keen (*Clean Architecture with Python*), e o próprio [Zen of Python (Tim Peters, PEP 20)](https://peps.python.org/pep-0020/), [Python Enhancement Proposals (PEP)](https://github.com/python/peps/tree/main) ou [Index of Python Enhancement Proposals](https://peps.python.org/).
+> **O que é este documento.** Um guia de referência, para colar no seu repositório, sobre as boas práticas de **código limpo** (nível micro: como escrever cada função, classe, nome) e **arquitetura limpa** (nível macro: como organizar as dependências de um sistema inteiro). É destilado do cânone estabelecido da engenharia de software — os princípios sistematizados por Robert C. Martin (*Clean Code*, *Clean Architecture*), a leitura Pythônica de Mariano Anaya (*Clean Code in Python*), a aplicação arquitetural de Sam Keen (*Clean Architecture with Python*), e o próprio [Zen of Python (Tim Peters, PEP 20)](https://github.com/python/peps/tree/main).
 >
 > **Como usar.** Não é para ler de uma vez. É para consultar. As Partes I–II são os princípios. A Parte III aplica as lentes ao RefCap (o código que você está dissecando) — é onde a teoria vira julgamento concreto. A Parte IV é o checklist destilado (os "mandamentos"). A Parte V trata da questão que você levantou: **quando usar IA e quando codar manualmente.** O Apêndice é um protocolo de prática para recalejar.
 >
 > **A filosofia por trás de tudo.** Uma única ideia governa este documento inteiro, e vale internalizá-la antes de qualquer regra: **código é lido muito mais vezes do que é escrito.** Você escreve uma função uma vez; você (e outros) a leem dezenas de vezes ao longo da vida do sistema. Portanto, **otimizar para a leitura é quase sempre a decisão certa** — mesmo quando custa mais para escrever. Todo princípio abaixo é, no fundo, uma consequência disso.
+>
+> **Fontes primárias (PEPs) e documentos companheiros.** Os *princípios* aqui vêm da tradição (Anaya, Martin, Keen — os "porquês"); os *idiomas Python* que os realizam vêm dos **PEPs** (os "comos"), e cada idioma abaixo traz o seu PEP-fonte com link. Dois catálogos companheiros organizam esses PEPs como checklist de estudo: **`Levantamento_PEPs_CleanCode.md`** (o subconjunto de código limpo — lista longa, a força expressiva do Python) e **`Levantamento_PEPs_CleanArchitecture.md`** (o de arquitetura — lista curta, concentrada no PEP 544/Protocols). Quando você vir "*(Ver Levantamento — …)*", é o ponteiro para eles.
 
 ---
 
@@ -15,11 +17,11 @@
 
 Antes das regras, o *porquê*, porque regras sem princípio viram dogma.
 
-**O custo do software não está em escrevê-lo - está em mantê-lo.** Um sistema é escrito uma vez e modificado centenas de vezes: correções, novas features, adaptações. O gargalo de todo esse trabalho futuro é uma coisa só: **quanto tempo leva para entender o código antes de mudá-lo com segurança.** Código limpo minimiza esse tempo. Código sujo o multiplica, até o ponto em que "é mais fácil reescrever do que entender" - a morte de um projeto.
+**O custo do software não está em escrevê-lo — está em mantê-lo.** Um sistema é escrito uma vez e modificado centenas de vezes: correções, novas features, adaptações. O gargalo de todo esse trabalho futuro é uma coisa só: **quanto tempo leva para entender o código antes de mudá-lo com segurança.** Código limpo minimiza esse tempo. Código sujo o multiplica, até o ponto em que "é mais fácil reescrever do que entender" — a morte de um projeto.
 
-Há uma assimetria cruel aqui: **o código sujo parece mais rápido no curto prazo.** Você entrega a feature hoje. Mas cada atalho é um empréstimo com juros - a *dívida técnica*. E os juros são pagos por você, em três meses, quando não lembrar mais por que aquela função tem sete parâmetros é um efeito colateral escondido. **Clean code é disciplina de pagar à vista.**
+Há uma assimetria cruel aqui: **o código sujo parece mais rápido no curto prazo.** Você entrega a feature hoje. Mas cada atalho é um empréstimo com juros — a *dívida técnica*. E os juros são pagos por você, em três meses, quando não lembrar mais por que aquela função tem sete parâmetros e um efeito colateral escondido. **Clean code é disciplina de pagar à vista.**
 
-**A regra de ouro operacional:** deixe o código mais limpo do que você o encontrou. Não precisa refatorar o mundo - só não pioré-lo. É o princípio do escoteiro (*Boy Scout Rule*): "deixe o acampamento mais limpo do que você o achou".
+**A regra de ouro operacional:** deixe o código mais limpo do que você o encontrou. Não precisa refatorar o mundo — só não pioré-lo. É o princípio do escoteiro (*Boy Scout Rule*): "deixe o acampamento mais limpo do que você o achou".
 
 ---
 
@@ -31,240 +33,18 @@ O domínio de Anaya: como cada linha, função e classe deve ser escrita em Pyth
 
 Python tem uma filosofia própria, codificada em dois documentos que você deveria conhecer de cor.
 
-### [PEP 20 — O Zen of Python (`import this`)](https://peps.python.org/pep-0020/)
-Vinte aforismos que guiam o design da linguagem. Os que mais importam na prática:
-
-#### [1. "Beautiful is better than ugly." (*Belo é melhor que feio.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen01)
-
-**O que significa:** prefira código agradável de ler — estrutura clara, estilo consistente, nomes limpos, organização coerente.
-
-**Por que é boa prática:** "beleza" aqui não é vaidade estética — é um *proxy* para organização. Código belo costuma ser belo *porque* está bem estruturado, e é a estrutura que o torna manutenível. Um trecho que agrada ao olho geralmente tem responsabilidades claras, nomes honestos e fluxo linear — as mesmas propriedades que reduzem o custo de compreensão. A beleza é o sintoma visível da ordem interna.
-
-**O limite:** beleza é subjetiva e pode virar *bikeshedding* (discussão infinita sobre gosto). Não sacrifique corretude ou clareza por uma noção pessoal de elegância. E cuidado: código "elegante" que é esperto-mas-obscuro **não** é belo no sentido do Zen — a beleza serve à legibilidade, não à exibição. Beleza que atrapalha a leitura é feiúra disfarçada.
-
----
-
-#### [2. "Explicit is better than implicit." (*Explícito é melhor que implícito.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen02)
-
-**O essencial:** não deixe o código fazer, escondido, o que a sua superfície não anuncia. O leitor constrói um modelo mental a partir do que está visível; comportamento implícito fica fora desse modelo, e a distância entre o modelo e o comportamento real é onde os bugs vivem.
-
-**Grounding no RefCap:** o `os.environ["CUDA_VISIBLE_DEVICES"]='0'` no import — importar um módulo muda a GPU silenciosamente. Foi o bug que nos mordeu.
-
-**O limite:** "explícito" não significa "verboso", e Python é cheio de bons implícitos (garbage collection, protocolo de iteração). A régua: torne explícito o *surpreendente*, deixe implícito o *convencional*.
-
-> **→ Este aforismo tem um tratado dedicado** (`EXPLICITO_vs_IMPLICITO_Tratado.md`), com o catálogo de 8 formas do implícito e demonstrações em execução. Aqui fica o resumo.
-
----
-
-#### [3. "Simple is better than complex." (*Simples é melhor que complexo.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen03)
-
----
-
-#### [4. "Complex is better than complicated." (*Complexo é melhor que complicado.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen04)
-
-**O essencial (os dois juntos 3. e 4.):** há três níveis numa ordem estrita — *simples > complexo > complicado*. **Complexo** = muitas partes, cada uma simples, que se separam (um relógio). **Complicado** = partes emaranhadas que não se separam (um nó). A raiz é a distinção de Brooks entre complexidade *essencial* (imposta pelo problema, irredutível) e *acidental* (adicionada pelo design, removível): remova toda a acidental (chegue ao complexo), e remova a própria complexidade quando ela também for acidental (chegue ao simples).
-
-**O limite:** "simples" não é "simplista" — remover a complexidade *essencial* que o problema exige produz código simples e *errado*. E decompor o que já era simples adiciona complexidade acidental (over-engineering). A ordem é uma prioridade: simples primeiro; complexo só quando o problema o impõe; nunca complicado.
-
-> **→ Estes dois têm um tratado dedicado** (`SIMPLES_COMPLEXO_COMPLICADO_Tratado.md`), com um exemplo provado em execução (20.000 casos) onde a versão complicada e a complexa são idênticas — demonstrando que a complicação é puro desperdício. Aqui fica o resumo.
-
----
-
-#### [5. "Flat is better than nested." (*Plano é melhor que aninhado.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen05)
-
-**O que significa:** evite aninhamento profundo de controle. Prefira estruturas planas — cláusulas de guarda, *early return*, extração de funções — a pirâmides de `if`/`for`/`try` encaixados.
-
-**Por que é boa prática:** cada nível de aninhamento é um nível de contexto que o leitor precisa segurar na cabeça *simultaneamente*. Para entender a linha no fundo de três `for` dentro de dois `if` dentro de um `try`, você tem que rastrear seis condições ao mesmo tempo. A memória de trabalho humana comporta ~4–7 itens; o aninhamento profundo a estoura. Código plano lê-se linearmente, um passo após o outro, sem manter uma pilha mental de condições abertas.
-
-**Técnica concreta — *early return* achata:**
-```python
-# ANINHADO (pirâmide)
-def processar(x):
-    if x is not None:
-        if x.valido:
-            if x.tem_permissao():
-                return fazer(x)
-    return None
-
-# PLANO (guarda + early return)
-def processar(x):
-    if x is None:          return None
-    if not x.valido:       return None
-    if not x.tem_permissao(): return None
-    return fazer(x)        # o caminho feliz, sem aninhamento
-```
-
-**Grounding no RefCap:** o `generate_proposal` mistura aninhamento profundo com múltiplas responsabilidades — parte do que o torna difícil de seguir é justamente a falta de achatamento.
-
-**O limite (importante — e em tensão com o #19):** "plano" aplica-se ao *fluxo de controle*, não necessariamente aos *namespaces*. Um namespace totalmente plano (500 módulos soltos, ou tudo num arquivo) é *pior* que uma organização em pacotes — e o aforismo #19 ("namespaces são uma ótima ideia") aponta na direção oposta para *organização de nomes*. A reconciliação: **achate o fluxo de controle, mas organize os namespaces.** Além disso, algum aninhamento reflete estrutura lógica genuína; achatar via truques (ou early returns em excesso que fragmentam o caminho feliz) pode piorar. Ache o nível que reflete a lógica sem empilhar contexto.
-
----
-
-#### [6. "Sparse is better than dense." (*Esparso é melhor que denso.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen06)
-
-**O que significa:** não comprima muitas operações numa linha ou expressão. Dê espaço ao código — idealmente, uma ideia por linha.
-
-**Por que é boa prática:** código denso (muitas operações encadeadas, one-liners espertos, expressões que fazem cinco coisas) força o leitor a *desempacotar* várias coisas de uma vez. Código esparso deixa cada passo ser lido e entendido separadamente. É o primo do "flat": onde o aninhamento empilha contexto *verticalmente*, a densidade empilha *horizontalmente*, e ambos estouram a mesma memória de trabalho.
-
-```python
-# DENSO (uma linha, muitas operações — difícil de parsear)
-resultado = [f(x) for x in (g(y) for y in dados if h(y)) if x and x.ok][:10]
-
-# ESPARSO (cada passo separado — cada um legível)
-candidatos = (g(y) for y in dados if h(y))
-transformados = [f(x) for x in candidatos if x and x.ok]
-resultado = transformados[:10]
-```
-
-**O limite (crucial, para não virar dogma):** "esparso" **não** significa "recheado de linhas em branco e cerimônia", nem "espalhe uma expressão simples por 10 linhas". O objetivo é uma *ideia* por linha, não espalhamento artificial. E — ponto importante — uma expressão densa *idiomática* (uma comprehension clara) pode ser *mais* legível que a versão esparsa com loop e `append`. A densidade é ruim quando empacota operações *não relacionadas* ou *difíceis de decifrar* — não quando expressa uma única ideia clara de forma concisa. Esparso serve à clareza; espalhar o que era claro trai o objetivo.
-
----
-
-#### [7. "Readability counts." (*Legibilidade conta.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen07)
-
-**O que significa:** a legibilidade é o critério de desempate final. Entre o esperto e o legível, escolha o legível.
-
-**Por que é boa prática:** é a reafirmação do fato econômico que funda clean code — *código é lido muito mais do que escrito*. Toda a manutenção futura passa pelo ato de entender o código, e a legibilidade é o que barateia esse ato. Este aforismo é, num sentido, o *meta-princípio* por trás de quase todos os outros: beleza, simplicidade, planura, esparsidade — todos são técnicas a serviço da legibilidade.
-
-**O limite (sutil mas essencial):** legível *para quem?* Legibilidade é relativa ao *leitor esperado*, não ao menor denominador comum. Código NumPy vetorizado é mais legível *para quem conhece NumPy* que o loop explícito equivalente — mesmo sendo mais "denso". Notação matemática (`i, j, alpha`) é mais legível *para quem lê matemática* que nomes longos. Otimize para o leitor que de fato vai manter o código, não para um hipotético iniciante universal. Legibilidade é contextual ao público.
-
----
-
-#### [8. "Special cases aren't special enough to break the rules." (*Casos especiais não são especiais o bastante para quebrar as regras.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen08)
-
----
-
-#### [9. "Although practicality beats purity." (*Embora a praticidade vença a pureza.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen09)
-
-> **★ Par de ressalva — e o coração anti-dogmático do Zen.** Estes dois vêm juntos e se limitam mutuamente. Leia-os como uma unidade.
-
-**#8 — o que significa:** não adicione exceções *ad hoc* aos seus padrões consistentes só porque um caso *parece* especial. Cada exceção que você abre é algo que o leitor precisa conhecer e lembrar; um código cheio de "exceto quando X" vira imprevisível. A consistência tem valor — ela deixa o leitor *generalizar* (se conhece o padrão, conhece todos os casos).
-
-**#8 — por que:** previsibilidade. Quando as regras valem sempre, o leitor confia nelas e não precisa checar cada caso. Cada carve-out especial corrói essa confiança e obriga a verificar "será que aqui vale a regra ou a exceção?".
-
-**#9 — a ressalva:** *mas* — quando seguir a regra *puramente* piora as coisas na prática, quebre-a. A praticidade vence a pureza ideológica.
-
-**#9 — por que (e por que isto é enorme):** regras são heurísticas a serviço de um objetivo. Quando a regra e o objetivo conflitam, **o objetivo vence** — que é *exatamente* a tese anti-dogmática de todos os nossos tratados. Pureza pela pureza é dogma. O Zen, na sua própria fonte, endossa a subordinação da regra ao objetivo.
-
-**A tensão 8↔9 é a lição:** consistência é valiosa (#8), mas não a ponto de contorcer a realidade para caber na regra (#9). Nenhum dos dois vence sempre — você *julga* caso a caso qual pesa mais. **Este par é a prova, no documento fundador do Python, de que boas práticas têm limites, e que aplicá-las requer julgamento, não obediência.** É o anti-dogmatismo escrito na origem.
-
----
-
-#### [10. "Errors should never pass silently." (*Erros nunca deveriam passar silenciosamente.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen10)
-
----
-
-#### [11. "Unless explicitly silenced." (*A menos que explicitamente silenciados.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen11)
-
-> **★ Par de ressalva.** O segundo limita o primeiro.
-
-**#10 — o que significa:** não engula exceções. Um `except: pass` mudo é quase sempre um bug esperando acontecer.
-
-**#10 — por que:** um erro silenciado não desaparece — ele se transforma num bug que aparece *mais tarde e mais longe* da causa, onde é muito mais caro diagnosticar. Silenciar troca uma falha barata (agora, na origem, com stack trace) por uma cara (depois, distante, sem pista). (Conecta ao tratado de erros do Código Limpo.)
-
-**#11 — a ressalva:** *a menos que* você silencie de propósito. Às vezes você *quer* ignorar um erro específico — e aí faça-o **explicitamente**: capture o tipo exato e comente por quê.
-```python
-# Silenciamento EXPLÍCITO (legítimo) — decisão visível e justificada
-try:
-    os.remove(arquivo_temporario)
-except FileNotFoundError:
-    pass  # já não existe — a ausência é exatamente o que queríamos
-```
-
-**#11 — por que:** a diferença entre silenciar *explícito* e *silencioso* é a intenção tornada visível (conecta ao aforismo #2). O `except: pass` genérico é um acidente disfarçado de decisão; o `except FileNotFoundError: pass  # comentário` é uma decisão documentada. O par 10+11 diz: erros são visíveis por padrão, e ignorá-los é uma exceção que exige justificativa explícita.
-
----
-
-#### [12. "In the face of ambiguity, refuse the temptation to guess." (*Na face da ambiguidade, recuse a tentação de adivinhar.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen12)
-
-**O que significa:** quando o comportamento ou os requisitos são ambíguos, não escolha silenciosamente uma interpretação e a cimente no código. Torne a ambiguidade explícita — falhe alto, ou force quem chama a especificar.
-
-**Por que é boa prática:** um chute escondido no código é uma mina terrestre — funciona até a suposição estar errada, e então falha misteriosamente, longe de onde a decisão foi tomada. Recusar-se a adivinhar (levantar uma exceção, exigir input explícito) *traz a ambiguidade à superfície*, onde ela pode ser resolvida por quem sabe a intenção.
-
-**Grounding — o próprio Python encarna isto (demonstrado em execução):**
-```
-Quanto é 1 + "2"?  Uma linguagem "esperta" adivinharia 3 ou "12" — ambos chutes.
-Python RECUSA e levanta: TypeError: unsupported operand type(s) for +: 'int' and 'str'
-Forçando VOCÊ a ser explícito:  1 + int("2") = 3   |   str(1) + "2" = "12"
-```
-Python não adivinha uma coerção entre tipos incompatíveis — ele para e força você a declarar a intenção. A ambiguidade é resolvida por quem a conhece (você), não por um chute da linguagem. É o aforismo virado design.
-
-**O limite:** isto **não** é "nunca forneça defaults". Um default *sensato e documentado* é uma escolha explícita e visível — não um chute. A proibição é contra *adivinhar silenciosamente* em ambiguidade genuína. `def f(timeout=30)` é um default explícito (bom); assumir calado que uma string vazia significa "use o padrão" é um chute (ruim). A linha: escolha visível vs. suposição escondida.
-
----
-
-#### [13. "There should be one—and preferably only one—obvious way to do it." (*Deveria haver uma — e de preferência só uma — maneira óbvia de fazer.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen13)
-
----
-
-#### [14. "Although that way may not be obvious at first unless you're Dutch." (*Embora essa maneira possa não ser óbvia à primeira vista, a menos que você seja holandês.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen14)
-
-> **★ Par (com uma piada que esconde uma lição).**
-
-**#13 — o que significa:** Python valoriza a *convergência* num idioma canônico, em contraste com linguagens que celebram "há muitos jeitos de fazer" (o lema TIMTOWTDI do Perl). Deve haver um jeito óbvio e consagrado.
-
-**#13 — por que:** quando existe um jeito óbvio e único, todo leitor *reconhece* o padrão instantaneamente — o vocabulário é compartilhado. Múltiplos jeitos idiossincráticos fragmentam esse vocabulário: cada autor inventa o seu, e cada leitor precisa decifrar qual foi usado. A convergência num idioma é o que torna código de estranhos legível para você. (Conecta ao aforismo #1 do design Pythônico — usar os idiomas estabelecidos.)
-
-**#14 — a piada:** referência a Guido van Rossum, criador do Python, que é holandês. O jeito "óbvio" é óbvio *para o designer da linguagem* — talvez não para você, à primeira vista.
-
-**#14 — a lição séria por trás da piada (relevante para você):** o jeito idiomático frequentemente *não é óbvio até você aprendê-lo* — idiomas são *aprendidos*, não inatos. Ele se torna óbvio *em retrospecto*, depois de você internalizar os padrões do Python. Isto é, na prática, um **argumento a favor de estudar Python idiomático deliberadamente** — que é exatamente o seu projeto de recalejar a fluência. O "óbvio" do Zen é uma meta a alcançar pelo estudo, não um dom que você tem ou não tem.
-
-**O limite:** "um jeito óbvio" é um *ideal*, nem sempre alcançado — e é sobre o jeito *óbvio*, não uma proibição de alternativas. Há problemas com mais de uma solução idiomática legítima. O aforismo é uma inclinação para a convergência, não uma lei de unicidade.
-
----
-
-#### [15. "Now is better than never." (*Agora é melhor que nunca.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen15)
-
----
-
-#### [16. "Although never is often better than *right* now." (*Embora nunca seja frequentemente melhor que **agora mesmo**.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen16)
-
-> **★ Par de ressalva — sobre ação vs. pressa.**
-
-**#15 — o que significa:** não adie indefinidamente. Uma coisa que funciona *agora* vence uma coisa perfeita que nunca chega. Viés para a ação, contra a paralisia da análise e o perfeccionismo eterno.
-
-**#15 — por que:** perfeccionismo e adiamento infinito produzem *nada*. Software entregue e funcionando cria valor; software perfeito no papel não. Conecta ao desenvolvimento iterativo e ao YAGNI — faça o que resolve agora, itere depois.
-
-**#16 — a ressalva:** *mas* — agir *precipitadamente* (agora mesmo, sem pensar) é frequentemente pior que não agir. Não despeje uma solução ruim só para fazer *alguma coisa*.
-
-**#16 — por que:** a pressa irrefletida gera dívida técnica e bugs que custam mais que o tempo "economizado". Há uma diferença entre *agora* (fazer, com cuidado, sem adiar) e *agora mesmo* (despejar sem pensar). O par 15+16 diz: entregue, mas não entregue lixo.
-
-**A tensão 15↔16:** viés para a ação (#15), mas não temeridade (#16). Nenhum dos dois vence sempre — você julga se o risco de adiar supera o risco de apressar. Mais uma vez, o Zen recusa dar um lado único e exige julgamento.
-
----
-
-#### [17. "If the implementation is hard to explain, it's a bad idea." (*Se a implementação é difícil de explicar, é uma má ideia.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen17)
-
----
-
-#### [18. "If the implementation is easy to explain, it may be a good idea." (*Se a implementação é fácil de explicar, pode ser uma boa ideia.*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen18)
-
-> **★ Par — com uma assimetria reveladora.**
-
-**#17 — o que significa:** se você não consegue explicar como o seu código funciona de forma clara, isso é um *sinal* de que o design é ruim. Complexidade que você não consegue articular é complexidade fora de controle.
-
-**#17 — por que:** a explicabilidade é um *proxy* para a compreensibilidade. Se nem o *autor* consegue explicar, nenhum mantenedor vai entender. É um diagnóstico prático — use "eu consigo explicar isto de forma simples?" como *detector de smell de design*. E conecta diretamente ao aforismo #4: código difícil de explicar frequentemente é *complicado* (emaranhado), não apenas complexo.
-
-**#18 — a contrapartida (note a assimetria):** o converso é mais *fraco* — fácil de explicar é sinal *necessário mas não suficiente* de bom design. Repare no "**may be** a good idea" (pode ser), não "is" (é). Uma explicação simples é um bom sinal, mas não uma garantia — uma solução simples de explicar ainda pode ser a *errada* para o problema.
-
-**A assimetria é a lição de epistemologia:** difícil-de-explicar é um sinal *confiável* de design ruim ("**is** a bad idea" — afirmação forte); fácil-de-explicar é apenas um sinal *fraco* de design bom ("**may be**" — afirmação hedge). O Zen é preciso na força de cada afirmação: a explicabilidade ruim condena com confiança; a boa apenas *sugere*. Essa assimetria — um sinal negativo forte, um positivo fraco — é ela mesma uma lição de humildade epistêmica que você aprecia: ausência de um mau sinal não é presença de uma virtude.
-
----
-
-#### [19. "Namespaces are one honking great idea—let's do more of those!" (*Namespaces são uma ideia genial pra caramba — vamos usar mais!*)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep20/zen19)
-
-**O que significa:** use namespaces (módulos, classes, escopos explícitos) para organizar e desambiguar nomes. Prefira `modulo.funcao` a despejar tudo num namespace global.
-
-**Por que é boa prática:** namespaces fazem duas coisas valiosas. Primeiro, **previnem colisões** — dois `helper` em módulos diferentes coexistem como `a.helper` e `b.helper` sem conflito. Segundo, e mais importante, **tornam a origem explícita** — quando você lê `np.array`, você *sabe* que vem do NumPy. O namespace carrega a proveniência do nome na própria sintaxe, o que é uma forma de "explicit is better than implicit" (#2) aplicada a nomes.
-
-**Grounding no RefCap — o `import *` é a violação exata deste aforismo:** o RefCap usa `from pipeline.X import *` em seis lugares. O `import *` **colapsa o namespace** — despeja todos os nomes do módulo no seu escopo, *apagando* a proveniência. Foi *precisamente* isso que tornou impossível rastrear de onde vinha `basic_utils` no `retrieve.py` (o bug que discutimos): o nome entrou por *algum* `import *`, e você não consegue saber qual. **O último aforismo do Zen condena diretamente o `import *`** — ele é a negação da ideia genial dos namespaces. A forma correta, `from pipeline.retrievepipe import MixPipe`, preserva o namespace e a rastreabilidade.
-
-**O limite (e a tensão com o #5):** namespaces têm custo. Sobre-aninhá-los — nomes profundamente qualificados como `a.b.c.d.e.funcao` — fica pesado e é, em certo sentido, o oposto de "flat is better than nested" (#5) aplicado a nomes. O equilíbrio: namespace *o suficiente* para desambiguar e organizar (o que #19 pede), mas não tanto que os nomes fiquem impraticáveis (onde #5 puxa de volta). Como em todo o Zen, dois princípios se equilibram, e você julga o ponto.
-
----
-
-### [PEP 8 — O guia de estilo](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/examples/pep8)
-As convenções de formatação: `snake_case` para funções e variáveis, `PascalCase` para classes, `UPPER_CASE` para constantes, 4 espaços de indentação, ~79-99 caracteres por linha, imports organizados (stdlib → terceiros → locais). **Não decore isto — use um formatador automático** (`black`, `ruff`). A questão não é memorizar regras de espaçamento; é que o estilo consistente reduz a carga cognitiva de leitura. Deixe a máquina cuidar do estilo para você focar na lógica.
+### PEP (Python Enhancement Proposals) 20 — O Zen of Python (`import this`)
+Os **19 aforismos** ([PEP 20](https://peps.python.org/pep-0020/)) que guiam o design da linguagem (são 19 escritos — o "20º" é uma piada de Tim Peters, deixado em branco). O conjunto completo, cada um com porquê e limite, está no tratado dedicado `ZEN_OF_PYTHON_Tratado_Completo.md`. Aqui, uma amostra dos de maior peso prático:
+
+- **"Explicit is better than implicit."** Não esconda comportamento. Uma função que altera estado global silenciosamente viola isto. (Guarde este — o RefCap o viola de forma exemplar, §III.)
+- **"Simple is better than complex. Complex is better than complicated."** Prefira a solução simples. Se precisar de complexidade, que seja *complexa* (muitas partes simples e claras), não *complicada* (emaranhada).
+- **"Flat is better than nested."** Evite aninhamento profundo. Três `for` dentro de dois `if` dentro de um `try` é um sinal de que algo precisa virar uma função.
+- **"Readability counts."** O critério final. Se você tem que escolher entre esperto e legível, escolha legível.
+- **"Errors should never pass silently. Unless explicitly silenced."** Não engula exceções. Um `except: pass` mudo é quase sempre um bug esperando acontecer.
+- **"There should be one—and preferably only one—obvious way to do it."** Python valoriza convenção. Siga os idiomas estabelecidos em vez de inventar os seus.
+
+### PEP 8 — O guia de estilo
+As convenções de formatação ([PEP 8](https://peps.python.org/pep-0008/); docstrings na [PEP 257](https://peps.python.org/pep-0257/)): `snake_case` para funções e variáveis, `PascalCase` para classes, `UPPER_CASE` para constantes, 4 espaços de indentação, ~79-99 caracteres por linha, imports organizados (stdlib → terceiros → locais). **Não decore isto — use um formatador automático** (`black`, `ruff`). A questão não é memorizar regras de espaçamento; é que o estilo consistente reduz a carga cognitiva de leitura. Deixe a máquina cuidar do estilo para você focar na lógica.
 
 > **Princípio:** o estilo não é sobre estética — é sobre *previsibilidade*. Código que segue as convenções da linguagem é lido no piloto automático; código idiossincrático exige atenção a cada linha.
 
@@ -299,6 +79,8 @@ Como saber se faz "uma coisa"? **Se você consegue extrair outra função dela c
 - **Sem efeitos colaterais escondidos.** Uma função chamada `validar_senha` que *também* inicializa a sessão está mentindo pelo nome. Faça o que o nome diz, e só isso.
 - **Command-Query Separation.** Uma função ou *faz* algo (comando, muda estado) ou *responde* algo (query, retorna valor) — não ambos. `if set_e_verificar_atributo("x")` é confuso.
 - **Prefira exceções a códigos de erro** (veja §5).
+
+**Do átomo à molécula — classes, coesão e encapsulamento:** se funções são o átomo, classes são a molécula. Duas regras fecham o tópico. **(1) Coesão:** os métodos e atributos de uma classe devem estar fortemente relacionados, servindo a *uma* responsabilidade — o oposto da "classe balde" que acumula funções não relacionadas. Sinal de baixa coesão: se metade dos métodos usa um subconjunto de atributos e a outra metade usa outro subconjunto disjunto, a classe quer ser *duas*. **(2) Encapsulamento:** exponha o mínimo; esconda o que pode mudar. Em Python, o prefixo `_` é a convenção de "isto é interno, não dependa disso" — não imposto, mas respeitado ("somos todos adultos aqui"). **Cuidado com um equívoco comum (Anaya):** o prefixo `__` (duplo) **não** cria privacidade — ele faz *name mangling* (renomeia `__x` para `_Classe__x` internamente, para evitar colisões em herança). Usar `__` achando que "torna privado" é um erro; para sinalizar "interno", use `_` (simples). *(Tratado de Código Limpo, Cap. 9.)*
 
 ## 4. Comentários e docstrings
 
@@ -342,6 +124,9 @@ Erros mal tratados poluem a lógica e escondem bugs.
 - **Capture exceções específicas**, não `except Exception`. Capturar tudo esconde bugs que você não previu.
 - **Falhe cedo e alto.** Valide pré-condições no início (o *fail-fast*). Um erro que aparece perto da causa é fácil de depurar; um que aparece três funções depois é um pesadelo.
 - **Não passe nem retorne `None` descuidadamente.** `None` que viaja pelo sistema vira um `AttributeError` distante da origem. Se algo pode faltar, trate na fronteira.
+- **Preserve a exceção original** ao relançar: `raise NovaExcecao(...) from exc` — sem o `from`, a cadeia de causa se perde. *(Lacuna que a auditoria contra Anaya apontou.)*
+
+**PEP-fontes de erros:** [PEP 3134](https://peps.python.org/pep-3134/) (`raise ... from`), [PEP 352](https://peps.python.org/pep-0352/) (hierarquia de exceções), [PEP 654](https://peps.python.org/pep-0654/) (`except*`). *(Ver Levantamento — Clean Code, §3.6.)*
 
 **EAFP vs LBYL — o idioma Pythônico:** Python prefere **EAFP** ("Easier to Ask Forgiveness than Permission") a **LBYL** ("Look Before You Leap"). Ou seja: tente e trate a exceção, em vez de checar antes.
 
@@ -367,23 +152,25 @@ except KeyError:
 
 **A armadilha do DRY (a nuance que separa o júnior do sênior):** DRY é sobre **conhecimento duplicado, não código parecido.** Duas funções que hoje têm código idêntico mas mudam por *razões diferentes* **não** devem ser unificadas — porque quando uma mudar, você vai ter que separá-las de novo, dolorosamente. Unificar código que só *coincidentemente* se parece cria acoplamento falso. **A pergunta certa não é "esse código se repete?" mas "essa *decisão* se repete?"**. Isto conecta diretamente com o SRP (§II.1) — código muda por razões; unifique o que muda pela mesma razão.
 
+**Os acrônimos irmãos (Anaya):** ao lado de DRY, dois princípios que valem nomear porque são a espinha do anti-over-engineering — **YAGNI** ("You Ain't Gonna Need It": não construa o que você *acha* que vai precisar; construa o que precisa *agora*) e **KIS** ("Keep It Simple": prefira a solução mais simples que resolve). Os dois são o antídoto direto à abstração especulativa — e reaparecem em escala na Parte II.9 (quando *não* usar arquitetura).
+
 ## 7. Os idiomas Python que produzem código limpo
 
-Python oferece construções específicas que, bem usadas, tornam o código dramaticamente mais limpo. Dominá-las é a diferença entre "escrever Python" e "escrever Pythônico".
+Python oferece construções específicas que, bem usadas, tornam o código dramaticamente mais limpo. Dominá-las é a diferença entre "escrever Python" e "escrever Pythônico". Cada idioma traz o seu **PEP-fonte** (a especificação oficial) — o companheiro `Levantamento_PEPs_CleanCode.md` os organiza como checklist.
 
-**Context managers (`with`)** — garantem setup/teardown (abrir/fechar, adquirir/liberar) mesmo diante de exceções. `with open(f) as file:` fecha o arquivo aconteça o que acontecer. `with torch.no_grad():` garante que o gradiente é religado depois. Sempre que houver um par "faça X, depois desfaça X", pense em context manager.
+**Context managers (`with`)** — garantem setup/teardown (abrir/fechar, adquirir/liberar) mesmo diante de exceções. `with open(f) as file:` fecha o arquivo aconteça o que acontecer. `with torch.no_grad():` garante que o gradiente é religado depois. Sempre que houver um par "faça X, depois desfaça X", pense em context manager. → [PEP 343](https://peps.python.org/pep-0343/).
 
-**Generators e iterators (`yield`)** — produzem valores sob demanda, sem materializar tudo na memória. Para processar um arquivo de milhões de linhas, um generator lê uma por vez. É *lazy evaluation* — economia de memória e composição elegante.
+**Generators e iterators (`yield`)** — produzem valores sob demanda, sem materializar tudo na memória. Para processar um arquivo de milhões de linhas, um generator lê uma por vez. É *lazy evaluation* — economia de memória e composição elegante. → [PEP 255](https://peps.python.org/pep-0255/) (generators), [PEP 289](https://peps.python.org/pep-0289/) (generator expressions), [PEP 234](https://peps.python.org/pep-0234/) (protocolo de iteração).
 
-**Comprehensions** — `[f(x) for x in xs if cond(x)]` é mais claro e rápido que o loop equivalente com `append`. Mas **não abuse**: uma comprehension com três `for` e dois `if` aninhados é *menos* legível que um loop. A regra: se não cabe legível em uma linha (ou duas), use um loop.
+**Comprehensions** — `[f(x) for x in xs if cond(x)]` é mais claro e rápido que o loop equivalente com `append`. Mas **não abuse**: uma comprehension com três `for` e dois `if` aninhados é *menos* legível que um loop. A regra: se não cabe legível em uma linha (ou duas), use um loop. → [PEP 202](https://peps.python.org/pep-0202/) (list), [PEP 274](https://peps.python.org/pep-0274/) (dict).
 
-**Properties (`@property`)** — expõem um método como se fosse um atributo, permitindo computar valores ou validar na atribuição sem mudar a interface. Deixam você começar com um atributo simples e adicionar lógica depois, sem quebrar quem usa a classe. É o *Uniform Access Principle*.
+**Properties (`@property`)** — expõem um método como se fosse um atributo, permitindo computar valores ou validar na atribuição sem mudar a interface. Deixam você começar com um atributo simples e adicionar lógica depois, sem quebrar quem usa a classe. É o *Uniform Access Principle*. → construída sobre o protocolo de *descriptors* ([PEP 252](https://peps.python.org/pep-0252/)/[253](https://peps.python.org/pep-0253/); Anaya, Cap. 6).
 
-**Decorators (`@decorator`)** — envolvem uma função/classe com comportamento adicional (logging, cache, validação, registro) sem tocar no corpo dela. O `@REGISTER_CAPGEN(["blip"])` do RefCap é um decorator que registra a classe num catálogo — um exemplo legítimo e elegante (§III). Decorators são a forma Pythônica de separar responsabilidades transversais (*cross-cutting concerns*).
+**Decorators (`@decorator`)** — envolvem uma função/classe com comportamento adicional (logging, cache, validação, registro) sem tocar no corpo dela. O `@REGISTER_CAPGEN(["blip"])` do RefCap é um decorator que registra a classe num catálogo — um exemplo legítimo e elegante (§III). Decorators são a forma Pythônica de separar responsabilidades transversais (*cross-cutting concerns*). → [PEP 318](https://peps.python.org/pep-0318/) (funções/métodos), [PEP 3129](https://peps.python.org/pep-3129/) (classes).
 
-**Dunder methods (`__x__`)** — os métodos mágicos que integram suas classes ao protocolo da linguagem. `__len__` faz `len(obj)` funcionar; `__getitem__` faz `obj[i]` funcionar; `__iter__` faz o `for` funcionar. **Foi exatamente isso que exploramos no `QueryDataset`:** implementando só `__len__` e `__getitem__`, ele "se passou" por um dataset sem herdar de nada. Isto é *duck typing* — "se anda como um pato e grasna como um pato, é um pato" — e é um dos pilares do Python.
+**Dunder methods (`__x__`)** — os métodos mágicos que integram suas classes ao protocolo da linguagem. `__len__` faz `len(obj)` funcionar; `__getitem__` faz `obj[i]` funcionar; `__iter__` faz o `for` funcionar. **Foi exatamente isso que exploramos no `QueryDataset`:** implementando só `__len__` e `__getitem__`, ele "se passou" por um dataset sem herdar de nada. Isto é *duck typing* — "se anda como um pato e grasna como um pato, é um pato" — e é um dos pilares do Python. → a versão formal e verificável é a **tipagem estrutural** da [PEP 544](https://peps.python.org/pep-0544/) (Protocols).
 
-**Dataclasses / namedtuples** — para objetos que são essencialmente dados, evitam boilerplate de `__init__`, `__repr__`, `__eq__`. Um `@dataclass` substitui vinte linhas por três.
+**Dataclasses / namedtuples** — para objetos que são essencialmente dados, evitam boilerplate de `__init__`, `__repr__`, `__eq__`. Um `@dataclass` substitui vinte linhas por três. → [PEP 557](https://peps.python.org/pep-0557/) (dataclasses), [PEP 589](https://peps.python.org/pep-0589/) (TypedDict).
 
 ## 8. Type hints
 
@@ -391,6 +178,8 @@ Python é dinamicamente tipado, mas *type hints* (`def f(x: int) -> str:`) adici
 - **Documentam o contrato** de forma que não desatualiza silenciosamente (um checker como `mypy` reclama).
 - **Habilitam ferramentas** — autocompletar, detecção de erros na IDE, refactoring seguro.
 - **Tornam o código auto-explicativo:** `def encode_keys(self, keys: list[str]) -> torch.Tensor` diz o contrato inteiro sem docstring.
+
+→ **PEP-fonte:** [PEP 484](https://peps.python.org/pep-0484/) (fundação) + [PEP 483](https://peps.python.org/pep-0483/) (teoria); sintaxe moderna [PEP 585](https://peps.python.org/pep-0585/) (`list[int]`) e [PEP 604](https://peps.python.org/pep-0604/) (`int | None`). No nível de arquitetura, é a [PEP 544](https://peps.python.org/pep-0544/) (Protocols) que os transforma em *contratos de fronteira*.
 
 Use-os na interface pública e onde o tipo não é óbvio. Não precisa anotar cada `i` de loop. **Para o seu caso** (código de pesquisa que você quer manter): type hints nas fronteiras entre módulos são um dos melhores investimentos de clareza por caractere digitado.
 
@@ -460,6 +249,8 @@ Traduzindo: a sua lógica de negócio (alto nível) não deve importar diretamen
 
 *No RefCap (o que tornou nossa adaptação possível):* o `MixPipe` não depende do `DataSet4Test` concreto — depende de um *contrato* (o duck typing). Nós fornecemos uma implementação diferente (`QueryDataset`) do mesmo contrato. **Isso é inversão de dependência na prática** — e é *por isso* que conseguimos adaptar o sistema sem tocar no núcleo. Quando você entende DIP, você entende por que algumas mudanças são triviais e outras exigem cirurgia.
 
+**PEP-fonte (o mecanismo Python da DIP):** [PEP 544](https://peps.python.org/pep-0544/) (*Protocols* — tipagem estrutural) permite *declarar* a abstração da qual o núcleo depende, sem herança; a alternativa nominal (com herança) é a [PEP 3119](https://peps.python.org/pep-3119/) (*ABCs*). É o subconjunto de PEPs que sustenta a arquitetura — *(Ver Levantamento — Clean Architecture, §Tier 1–2.)*
+
 > **A regra que unifica os cinco:** dependa de abstrações estáveis, não de detalhes voláteis. Tudo em SOLID serve a isso.
 
 ## 2. A Regra da Dependência (o coração da Clean Architecture)
@@ -493,6 +284,8 @@ Martin organiza um sistema em círculos concêntricos, do mais abstrato (centro)
 
 **O mecanismo que faz funcionar:** quando uma camada interna *precisa* falar com uma externa (ex.: o caso de uso precisa salvar algo), ela define uma *interface* (uma abstração), e a camada externa a implementa. A dependência do código aponta para dentro (a implementação externa depende da interface interna), mesmo que o fluxo de controle vá para fora. Isto é a Inversão de Dependência (DIP) operando em escala arquitetural.
 
+**O mapeamento Python concreto (Keen):** as quatro camadas viram quatro pastas — `domain/` (entities e value objects), `application/` (casos de uso), `infrastructure/` (frameworks, banco, libs externas), `interfaces/` (controllers, CLI, API). A estrutura de diretórios *torna a Regra da Dependência visível*: `domain/` não importa de ninguém; `application/` importa só de `domain/`; `infrastructure/` e `interfaces/` importam para dentro. Uma violação (um import de `domain/` para `infrastructure/`) salta aos olhos. *(Tratado de Arquitetura, Cap. 2.)*
+
 ## 3. Fronteiras, Portas e Adaptadores (Arquitetura Hexagonal)
 
 Uma forma prática e popular da Clean Architecture. A ideia: o núcleo da aplicação (domínio + casos de uso) se comunica com o mundo através de **portas** (interfaces) que **adaptadores** implementam.
@@ -511,6 +304,50 @@ Um corolário crucial: **frameworks são detalhes, não fundações.** Torch, ff
 **O sintoma clássico (e o RefCap é um caso de estudo):** efeitos colaterais de framework no *import* de um módulo. `os.environ["CUDA_VISIBLE_DEVICES"]='0'` no topo do arquivo faz o simples ato de *importar* aquele módulo alterar o ambiente global de CUDA. Isso é o framework (CUDA) vazando para o nível estrutural do código — e foi o bug que nos mordeu no `retrieve_service.py`, forçando a GPU 0 sem que ninguém pedisse. **Frameworks devem ser chamados, não devem se ativar sozinhos no import.**
 
 > **Princípio:** trate cada biblioteca externa como algo que você pode querer trocar amanhã. Isole-a atrás de uma interface sua. Quanto mais o seu código depende dos detalhes de uma lib, mais refém você é dela.
+
+## 5. O mecanismo Python: Protocols, ABC ou duck typing
+
+A DIP (§1) exige que o núcleo dependa de uma *abstração*. Python te dá três formas de expressá-la — e escolher a certa é a decisão técnica central da arquitetura limpa em Python.
+
+- **Duck typing (implícito):** dependa da forma, sem declarar nada. *Flexível, mas o contrato é invisível* — quem implementa tem que descobri-lo lendo o código (foi o que fizemos no `QueryDataset`).
+- **`abc.ABC` (nominal, [PEP 3119](https://peps.python.org/pep-3119/)):** declare uma classe base abstrata e *herde* dela. *Contrato explícito, mas exige herança* — acopla, e não serve para objetos que você não controla.
+- **`typing.Protocol` (estrutural, [PEP 544](https://peps.python.org/pep-0544/)):** ★ declare o contrato como um `Protocol`, e *qualquer* objeto com a forma certa o satisfaz — **sem herdar**. É duck typing *com contrato escrito e checável por `mypy`*. **É a ferramenta arquitetural ideal em Python:** o núcleo declara a abstração de que precisa, sem forçar a borda a herdar nada.
+
+**Regra prática:** para fronteiras internas, prefira `Protocol` (contrato visível sem acoplamento). É o exercício-âncora do RefCap: reescrever o `QueryDataset` declarando um `Protocol` explícito, em vez de tatear o contrato por duck typing. *(Tratado de Arquitetura, Cap. 4; Levantamento — Clean Architecture, §Tier 1.)*
+
+## 6. Value objects: conceitos de domínio, não primitivos soltos
+
+**A regra:** substitua *primitivos soltos* (tuplas, dicts, floats crus) que carregam significado de domínio por *objetos nomeados e validados*.
+
+**O porquê:** passar `(12.0, 19.0)` por todo o sistema (o que é? segundos? o que garante início < fim?) é *obsessão por primitivos* — um code smell. Um value object `IntervaloDeTempo` que *valida na criação* (início < fim, ambos ≥ 0) e *comunica o conceito* elimina o smell, centraliza a validação, e torna o código auto-documentado. Mecanismo Python: `@dataclass(frozen=True)` ([PEP 557](https://peps.python.org/pep-0557/)).
+
+**No RefCap (smell claro):** o dataset devolve uma *tupla de 7 elementos* desempacotada posicionalmente — a posição carrega significado, sem validação, e um erro de ordem passa silencioso. Um value object tornaria o contrato explícito e à prova de erro posicional.
+
+**O limite:** não crie value object para *cada* dado — um contador de loop não vira `ContadorDeIteracao`. Reserve para conceitos de domínio que se repetem, têm regras de validade, ou cujo significado nu seria ambíguo. *(Tratado de Arquitetura, Cap. 5.)*
+
+## 7. Testabilidade: a consequência, não o objetivo
+
+**A regra:** um sistema bem arquitetado é testável *como consequência*, não como esforço adicional.
+
+**O porquê:** se o núcleo depende de abstrações (Protocols) e não de detalhes, você testa o núcleo conectando *implementações falsas* das portas — sem banco, sem framework, sem GPU. A testabilidade não é uma propriedade que você *adiciona*; é o *sintoma* de que as dependências estão invertidas corretamente. Código difícil de testar é um diagnóstico: quase sempre significa que uma dependência concreta está soldada onde deveria haver uma abstração. **Dificuldade de teste é o alarme de um defeito arquitetural, não um problema de teste.** *(Tratado de Arquitetura, Cap. 10.)*
+
+## 8. Aplicando a legado (a sua situação): destino, não big-bang
+
+**A regra:** arquitetura limpa é um *destino* para onde se caminha incrementalmente, não uma reescrita de tudo de uma vez.
+
+**O porquê:** reescrever um sistema legado inteiro "para ficar limpo" é quase sempre um erro caro e arriscado. O caminho certo é a *camada anti-corrupção*: você constrói uma fronteira limpa *ao redor* do código legado (adaptadores que traduzem entre o seu mundo e o dele), protegendo o código novo da forma do antigo, sem tocar no núcleo legado. **É exatamente o que fizemos com o RefCap:** o `make_annos.py` e o `retrieve_service.py` são adaptadores que envolvem o RefCap sem modificá-lo — arquitetura hexagonal aplicada a legado. Você não limpou o RefCap; você construiu uma fronteira limpa em volta dele. *(Tratado de Arquitetura, Cap. 13.)*
+
+## 9. Contra o dogmatismo: quando NÃO usar arquitetura limpa
+
+**Esta seção é tão importante quanto todas as outras juntas.** Arquitetura limpa é a ideia mais *super-aplicada* da engenharia: gente constrói catedrais de quatro camadas, com Protocols e injeção de dependência, para um script de 200 linhas. O resultado é *pior* que não ter arquitetura nenhuma — é complexidade acidental pura.
+
+**O custo real (nomeie-o):** arquitetura limpa custa *mais código* (interfaces, adaptadores, value objects, request/response models), *mais indireção* (para seguir um fluxo, você salta por várias camadas), e *mais tempo inicial*. Esse custo se paga **só quando** o sistema vive muito, muda muito, e tem regras de domínio que valem isolar.
+
+**A pergunta que decide:** *"este sistema vai viver e mudar o suficiente para que o custo da arquitetura se pague em manutenção futura?"*
+- **Script único, throwaway, exploração, protótipo** → **não**. Escreva direto, simples. Aplicar camadas aqui é o dogmatismo em forma de diretório.
+- **Sistema de vida longa, com regras de domínio reais e múltiplas integrações voláteis** → **sim**. O custo se paga.
+
+**O gradiente (a saída da falsa dicotomia):** não é "arquitetura limpa completa" vs. "nenhuma arquitetura". É um *contínuo*. Você aplica *o tanto de arquitetura que o problema justifica*: talvez só separar I/O de lógica; talvez um `Protocol` numa fronteira crítica e nada mais; talvez as quatro camadas completas. **A maturidade não é aplicar sempre o máximo — é calibrar o nível à necessidade real.** Um engenheiro escolhe o ponto no gradiente; um dogmático aplica sempre o extremo. *(Tratado de Arquitetura, Cap. 14.)*
 
 ---
 
@@ -566,29 +403,35 @@ Cole isto na parede. É a versão executável de tudo acima.
 3. **Nomes revelam intenção.** Um bom nome dispensa um comentário. (Exceção: notação matemática consagrada.)
 4. **Poucos argumentos.** Três é o teto. Nenhum booleano-flag.
 5. **Sem efeitos colaterais escondidos.** A função faz o que o nome diz, e só isso.
-6. **Exceções, não códigos de erro nem sentinelas.** Falhe cedo e alto.
-7. **Não engula erros.** `except: pass` é culpado até prova em contrário.
-8. **Comentário explica o *porquê*, não o *quê*.** Apague código comentado.
-9. **DRY: unifique conhecimento, não código coincidente.**
-10. **Use os idiomas Python** (context managers, generators, comprehensions moderadas, properties, decorators, dunders).
-11. **Type hints nas fronteiras.** Documentação que não desatualiza.
-12. **Sem números mágicos.** Dê nome às constantes.
-13. **Deixe mais limpo do que encontrou** (Boy Scout Rule).
+6. **Classes coesas, encapsulamento com `_`.** Métodos relacionados a uma responsabilidade; `_` sinaliza "interno" (o `__` é *name mangling*, não privacidade).
+7. **Exceções, não códigos de erro nem sentinelas.** Falhe cedo e alto. Preserve a causa com `raise ... from`.
+8. **Não engula erros.** `except: pass` é culpado até prova em contrário.
+9. **Comentário explica o *porquê*, não o *quê*.** Apague código comentado.
+10. **DRY: unifique conhecimento, não código coincidente.** E **YAGNI/KIS:** não construa o especulativo; prefira o simples.
+11. **Use os idiomas Python** (context managers, generators, comprehensions moderadas, properties, decorators, dunders) — cada um com seu PEP-fonte.
+12. **Type hints nas fronteiras.** Documentação que não desatualiza.
+13. **Sem números mágicos.** Dê nome às constantes.
+14. **Deixe mais limpo do que encontrou** (Boy Scout Rule).
 
 ## Clean Architecture (ao desenhar um sistema)
-14. **Dependências apontam para dentro.** O domínio não conhece o mundo externo.
-15. **SRP:** uma razão para mudar por módulo.
-16. **OCP:** estenda por adição, não por modificação (registries, plugins).
-17. **LSP:** subtipos honram o contrato da base.
-18. **ISP:** interfaces estreitas — não force ninguém a depender do que não usa.
-19. **DIP:** dependa de abstrações, não de detalhes. É o que torna a mudança barata.
-20. **Isole os frameworks na borda.** Torch, ffmpeg, o banco — todos descartáveis, atrás de interfaces suas.
-21. **Frameworks são chamados, não se ativam no import.** Nada de efeito colateral no carregamento do módulo.
-22. **Camada anti-corrupção nas fronteiras** com código alheio (foi o que fizemos com os adapters).
-23. **Testabilidade é consequência de bom design.** Se é difícil testar, o design está acoplado demais.
+15. **Dependências apontam para dentro.** O domínio não conhece o mundo externo. (Camadas Keen: `domain`/`application`/`infrastructure`/`interfaces`.)
+16. **SRP:** uma razão para mudar por módulo.
+17. **OCP:** estenda por adição, não por modificação (registries, plugins).
+18. **LSP:** subtipos honram o contrato da base.
+19. **ISP:** interfaces estreitas — não force ninguém a depender do que não usa.
+20. **DIP:** dependa de abstrações, não de detalhes. É o que torna a mudança barata.
+21. **O mecanismo é o `Protocol` (PEP 544).** Para fronteiras internas, declare o contrato como Protocol (visível, sem herança), não como duck typing implícito nem ABC acoplante.
+22. **Value objects, não primitivos soltos.** Conceitos de domínio (intervalo, query) viram objetos nomeados e validados, não tuplas/floats anônimos.
+23. **Isole os frameworks na borda.** Torch, ffmpeg, o banco — todos descartáveis, atrás de interfaces suas. **E frameworks são chamados, não se ativam no import.**
+24. **Camada anti-corrupção nas fronteiras** com código alheio (foi o que fizemos com os adapters).
+25. **Testabilidade é consequência de bom design.** Se é difícil testar, o design está acoplado demais.
+26. **Em legado: fronteira limpa em volta, não reescrita.** Arquitetura é destino incremental, não big-bang.
+
+## Contra o dogmatismo (a régua que governa tudo)
+27. **Calibre a arquitetura à necessidade — não aplique sempre o máximo.** Script throwaway → simples e direto. Sistema de vida longa → camadas. Há um *gradiente*, e maturidade é escolher o ponto certo, não construir catedrais para scripts.
 
 ## O princípio-mãe
-24. **Toda regra acima é serva de uma só ideia: minimizar o custo da próxima mudança.** Quando uma regra e essa ideia conflitarem, a ideia vence.
+28. **Toda regra acima é serva de uma só ideia: minimizar o custo da próxima mudança.** Quando uma regra e essa ideia conflitarem, a ideia vence.
 
 ---
 

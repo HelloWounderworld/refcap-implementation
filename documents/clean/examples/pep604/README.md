@@ -1,0 +1,1 @@
+# [PEP 604 – Allow writing union types as X | Y](https://peps.python.org/pep-0604/)

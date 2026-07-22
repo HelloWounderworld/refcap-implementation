@@ -8,6 +8,8 @@
 > **O compromisso anti-dogmático — e aqui ele é vital.** Arquitetura limpa é a ideia mais *super-aplicada* da engenharia de software: gente constrói catedrais de quatro camadas, com Protocols e injeção de dependência, para um script de 200 linhas. O resultado é pior que não ter arquitetura nenhuma. Por isso este tratado dá igual peso a *quando aplicar* e a *quando não aplicar* — o Capítulo 14 é tão importante quanto todos os outros juntos.
 >
 > **As referências.** O cânone é a *Clean Architecture* de Robert C. Martin (a Regra da Dependência, as camadas concêntricas, as fronteiras). A aplicação Python-específica segue a abordagem de Sam Keen (*Clean Architecture with Python*): o mapeamento concreto das camadas num projeto (`domain`/`application`/`infrastructure`/`interfaces`), o uso de *type hints e Protocols* como ferramenta arquitetural, o Domain-Driven Design com *value objects* e *entities*, e a perspectiva de refatorar legado. Tudo reescrito em palavras próprias, com exemplos meus e ancorado no RefCap — não é reprodução de nenhum livro.
+>
+> **Fontes primárias (PEPs) — e por que são poucas.** Cada *mecanismo Python* citado aqui está ancorado ao seu **PEP-fonte**. Mas atenção a uma assimetria que é o próprio recado: **a lista de PEPs de arquitetura é curta.** Isso porque arquitetura limpa é dirigida por *princípios* — a Regra da Dependência, SOLID, portas e adaptadores, DDD — que vêm da tradição (Martin, Keen), **não dos PEPs.** O que os PEPs oferecem é só o *mecanismo* para realizar esses princípios em Python, e ele está concentrado quase inteiramente num PEP só: o **[PEP 544](https://peps.python.org/pep-0544/) (Protocols)**. Então: **não espere os PEPs te ensinarem arquitetura** — eles dão as ferramentas; a sabedoria está neste tratado. O catálogo companheiro **`Levantamento_PEPs_CleanArchitecture.md`** organiza esse subconjunto enxuto como checklist; quando você vir "*(Ver Levantamento — Clean Architecture, §X)*", é o ponteiro para lá.
 
 ---
 
@@ -86,6 +88,8 @@ A organização Python concreta (Keen) — `domain/`, `application/`, `infrastru
 
 **O limite:** esta estrutura de quatro pastas é o *destino* de um sistema que cresceu a ponto de precisar dela — não o *ponto de partida* de todo projeto. Começar um script de 100 linhas com quatro pastas vazias é o dogmatismo em forma de diretório (Cap. 14).
 
+**PEP-fontes (a estrutura no concreto):** as regras de import que expressam a dependência entre camadas são a [PEP 328](https://peps.python.org/pep-0328/) (*Imports: Absolute/Relative*) — e é aqui que o `import *` do RefCap é um problema, pois **colapsa a rastreabilidade** das dependências que esta estrutura deveria tornar visível. A organização de pacotes é a [PEP 420](https://peps.python.org/pep-0420/) (*Namespace Packages*); a montagem do projeto (a *composition root* no nível macro) é a [PEP 518](https://peps.python.org/pep-0518/)/[517](https://peps.python.org/pep-0517/)/[621](https://peps.python.org/pep-0621/) (`pyproject.toml`); e a fronteira de tipos que uma lib expõe é a [PEP 561](https://peps.python.org/pep-0561/) (`py.typed`). *(Ver Levantamento — Clean Architecture, §Tier 3.)*
+
 ---
 
 # CAPÍTULO 3 — SOLID em escala arquitetural
@@ -157,6 +161,13 @@ class QueryProvider(Protocol):
 ```
 Agora o contrato é visível, verificável, e quem implementa sabe exatamente o que precisa — sem herdar. **É a diferença entre um acoplamento que se descobre lendo o código e um que se lê na assinatura.** Este é o coração do "Type-Enhanced Python": usar o sistema de tipos não para performance, mas para *tornar as fronteiras arquiteturais explícitas e fiscalizáveis*.
 
+> **★ PEP-fonte (o mecanismo central da arquitetura limpa em Python).** As três ferramentas acima têm especificações oficiais:
+> - **`typing.Protocol` → [PEP 544](https://peps.python.org/pep-0544/)** (*Protocols: Structural Subtyping*) — **a joia da coroa.** É o que torna a Inversão de Dependência Pythônica: declarar a abstração sem exigir herança. Se você dominar *um* PEP para arquitetura, é este.
+> - **`abc.ABC` → [PEP 3119](https://peps.python.org/pep-3119/)** (*Introducing Abstract Base Classes*) — a alternativa nominal (com herança). Estude os dois lado a lado.
+> - **Os type hints do contrato → [PEP 484](https://peps.python.org/pep-0484/)** (fundação) — aqui servindo para definir *contratos de fronteira*, não só clareza de função.
+>
+> Este é o subconjunto de PEPs que sustenta *toda* a arquitetura limpa em Python — o companheiro `Levantamento_PEPs_CleanArchitecture.md` os organiza como checklist (§Tier 1–2). E o exercício-âncora é justamente reescrever o `QueryDataset` do RefCap com o `Protocol` acima.
+
 ---
 
 # CAPÍTULO 5 — A camada de domínio: entities e value objects (DDD)
@@ -175,6 +186,8 @@ O centro dos círculos. Keen dedica um capítulo ao Domain-Driven Design porque 
 **O porquê arquitetural (por que isto importa muito, e é subestimado):** value objects substituem *primitivos soltos* (tuplas, dicts, floats crus) por *conceitos nomeados e validados*. Compare: passar `(12.0, 19.0)` por todo o sistema (o que é? segundos? o que garante que início < fim?) versus passar um `IntervaloDeTempo` que *valida na criação* (início < fim, ambos ≥ 0) e *comunica o conceito*. O value object (a) elimina a "obsessão por primitivos" (um code smell onde tipos básicos carregam significado que deveria ser explícito), (b) centraliza a validação (impossível criar um intervalo inválido), e (c) torna o código auto-documentado. **Ele transforma um dado anônimo num conceito de domínio.**
 **No RefCap (um smell claro):** o dataset devolve uma *tupla de 7 elementos* `(desc_name, desc_id, vid_name, vid_id, desc, ts_start, ts_end)`, desempacotada posicionalmente. Isto é obsessão por primitivos: a posição carrega significado (o 6º é `ts_start`), não há validação, e um erro de ordem passa silencioso. Um value object (`Query` com campos nomeados, ou um `@dataclass`) tornaria o contrato explícito, validado e à prova de erro posicional. É exatamente o tipo de coisa que um sistema *seu*, limpo, faria diferente.
 **O limite:** criar um value object para *cada* dado é exagero — um contador de loop não precisa virar `ContadorDeIteracao`. Reserve value objects para conceitos de domínio que (a) se repetem, (b) têm regras de validade, ou (c) cujo significado nu (um float) seria ambíguo. Onde o primitivo é claro e local, o primitivo basta.
+
+**PEP-fonte:** o mecanismo Python dos value objects é [PEP 557](https://peps.python.org/pep-0557/) (*Data Classes* — use `@dataclass(frozen=True)` para imutabilidade); para dados estruturados tipados, [PEP 589](https://peps.python.org/pep-0589/) (*TypedDict*). *(Ver Levantamento — Clean Architecture, §Tier 2.)* Note a dupla função: no Código Limpo, dataclass reduz boilerplate; aqui, ela *implementa o conceito de domínio validado* — o mesmo mecanismo, propósito arquitetural.
 
 ---
 

@@ -8,6 +8,8 @@
 > **O compromisso central.** Você não deve seguir nada aqui *porque um autor disse*. Deve seguir porque, tendo entendido o custo que a prática evita, você concorda que evitá-lo vale o esforço. Onde você discordar após entender o trade-off, discorde — isso é sinal de que o documento cumpriu seu papel: te deu o raciocínio, não a obediência.
 >
 > **A origem.** Os princípios são o cânone da engenharia de software (Robert C. Martin, Mariano Anaya, Kent Beck, Tim Peters, a comunidade Python), sintetizados com exemplos próprios e aplicados ao contexto do RefCap onde ajuda a fixar. Não é a reprodução de nenhum livro — é o raciocínio destilado, reescrito para ser *seu*.
+>
+> **Fontes primárias (PEPs).** Cada *idioma Python* citado neste tratado está ancorado ao seu **PEP-fonte** — a especificação oficial que o define. Isto separa as duas camadas do aprendizado: os *princípios* de clean code vêm da tradição (Anaya, Martin — os "porquês"); os *idiomas* que os realizam vêm dos PEPs (os "comos"). O documento companheiro **`Levantamento_PEPs_CleanCode.md`** organiza esses PEPs em camadas de prioridade, como checklist. Quando você vir "*(Ver Levantamento — Clean Code, §X)*", é o ponteiro para lá.
 
 ---
 
@@ -39,7 +41,7 @@ Código limpo não é universal — ele é relativo às convenções da linguage
 
 ## 1.2 O Zen of Python (PEP 20) — os princípios da linguagem
 
-Não são regras de sintaxe; são a *filosofia de design* de Python (`import this`). Os que têm peso prático real, com o porquê de cada um:
+Não são regras de sintaxe; são a *filosofia de design* de Python (`import this`), especificada na [PEP 20](https://peps.python.org/pep-0020/). Os que têm peso prático real, com o porquê de cada um (o conjunto completo dos 19 aforismos tem tratado dedicado — `ZEN_OF_PYTHON_Tratado_Completo.md`):
 
 - **"Explicit is better than implicit."** *Por quê:* comportamento implícito (efeitos escondidos, mágica) é invisível na leitura — você não vê o que não está escrito, então não pode raciocinar sobre isso. O implícito transfere conhecimento do *código* (visível, verificável) para a *cabeça de quem escreveu* (invisível, perecível). Torne visível o que importa.
 - **"Simple is better than complex; complex is better than complicated."** *Por quê:* há uma distinção precisa aqui. *Complexo* = muitas partes, cada uma simples e clara (compreensível peça por peça). *Complicado* = emaranhado, onde as partes não se separam (você não consegue entender uma sem entender todas). Complexidade é às vezes inevitável; complicação nunca é necessária. Prefira dividir em partes simples a criar um emaranhado.
@@ -50,7 +52,7 @@ Não são regras de sintaxe; são a *filosofia de design* de Python (`import thi
 
 ## 1.3 PEP 8 e a formatação — por que delegar à máquina
 
-**A regra:** siga PEP 8 (as convenções de layout), mas **automatize** com um formatador (`black`, `ruff`) em vez de fazer à mão.
+**A regra:** siga a [PEP 8](https://peps.python.org/pep-0008/) (*Style Guide for Python Code*, as convenções de layout), mas **automatize** com um formatador (`black`, `ruff`) em vez de fazer à mão.
 
 **O porquê da consistência:** formatação consistente reduz carga cognitiva porque torna a *estrutura* previsível — você sabe onde procurar cada coisa. Indentação, espaçamento e organização uniformes deixam o cérebro focar na lógica, não em decifrar o layout. A inconsistência força atenção a cada bloco.
 
@@ -226,6 +228,21 @@ except FileNotFoundError:
 
 **O limite:** EAFP não é absoluto. Quando a checagem é barata e a exceção seria cara ou frequente (exceções têm custo de performance), ou quando você quer validar *antes* de um efeito colateral irreversível, o LBYL é legítimo. O idioma é uma preferência default, não uma proibição.
 
+## 4.7 Preserve a exceção original (`raise ... from`)
+
+**A regra:** ao capturar uma exceção e relançar outra, preserve a original com `raise NovaExcecao(...) from exc`.
+
+**O porquê:** sem o `from`, a cadeia de causa se perde — quem depura vê só a exceção nova, sem o erro raiz que a provocou. Com o `from`, o traceback mostra "isto foi causado por aquilo", preservando a trilha até a origem. É a diferença entre um relatório de erro completo e um que apaga a pista mais importante.
+
+```python
+try:
+    valor = int(entrada)
+except ValueError as exc:
+    raise ConfigInvalida(f"entrada malformada: {entrada!r}") from exc   # a causa é preservada
+```
+
+**PEP-fonte:** [PEP 3134](https://peps.python.org/pep-3134/) (*Exception Chaining*, o `raise ... from`); a supressão da cadeia (`from None`) é a [PEP 409](https://peps.python.org/pep-0409/)/[415](https://peps.python.org/pep-0415/); a hierarquia de exceções (herdar de `Exception`) é a [PEP 352](https://peps.python.org/pep-0352/); grupos de exceções (`except*`) são a [PEP 654](https://peps.python.org/pep-0654/). *(Ver Levantamento — Clean Code, §3.6.)* **Esta é a lacuna que a auditoria contra Anaya identificou** ("include the original exception") — agora coberta.
+
 ---
 
 # CAPÍTULO 5 — Comentários e documentação: o que o código não consegue dizer
@@ -259,6 +276,8 @@ except FileNotFoundError:
 **O porquê:** docstrings não são "comentários sobre o código" — são *documentação da API*, acessível via `help()`, IDEs e ferramentas. Elas descrevem o contrato do ponto de vista de *quem usa*, não de quem implementa. Um bom docstring diz "o que esta função faz por você e como chamá-la", permitindo usá-la sem ler o corpo. É a fronteira entre o "como" (o corpo, privado) e o "o quê" (o contrato, público).
 
 **O limite:** docstrings também desatualizam, então reserve-as para o que tem contrato estável e público. Uma função privada de duas linhas com nome claro não precisa de docstring — seria cerimônia vazia.
+
+**PEP-fonte:** [PEP 257](https://peps.python.org/pep-0257/) (*Docstring Conventions*) — a convenção canônica (aspas triplas, resumo na primeira linha, etc.); o formato reStructuredText é a [PEP 287](https://peps.python.org/pep-0287/). Anaya trata docstrings e anotações no Cap. 1. *(Ver Levantamento — Clean Code, §Tier 1.)*
 
 ---
 
@@ -294,17 +313,23 @@ Python oferece construções que, bem usadas, tornam o código dramaticamente ma
 
 **O porquê é limpo:** `with open(f) as file:` garante que o arquivo fecha aconteça o que acontecer — exceção, return, qualquer coisa. O gerenciamento do recurso fica *encapsulado* e *à prova de esquecimento*. `with torch.no_grad():` garante que o gradiente religa depois. Sempre que houver um par "adquira/libere", "abra/feche", "entre/saia", o context manager torna a garantia automática e invisível, em vez de manual e frágil.
 
+**PEP-fonte:** [PEP 343](https://peps.python.org/pep-0343/) (*The "with" Statement*) — define o `with` e o protocolo `__enter__`/`__exit__`. Anaya cobre isto no Cap. 2 (*Pythonic Code*). *(Ver Levantamento PEPs — Clean Code, §3.3.)*
+
 ## 7.2 Generators (`yield`) — computar sob demanda
 
 **O que resolve:** o problema de processar/produzir muitos itens sem materializar todos na memória de uma vez.
 
 **O porquê é limpo:** um generator produz valores *lazily* (sob demanda), um por vez. Para ler um arquivo de milhões de linhas, um generator lê uma, processa, descarta, lê a próxima — memória constante em vez de linear. Além da economia, generators *compõem* elegantemente (você encadeia transformações lazy) e *separam* a lógica de produção da de consumo. O custo que evitam é o de carregar tudo — às vezes a diferença entre rodar e estourar a memória.
 
+**PEP-fonte:** [PEP 255](https://peps.python.org/pep-0255/) (*Simple Generators*, o `yield`) e [PEP 289](https://peps.python.org/pep-0289/) (*Generator Expressions*, o `(x for x in ...)`); mais avançados, [PEP 342](https://peps.python.org/pep-0342/) (corrotinas) e [PEP 380](https://peps.python.org/pep-0380/) (`yield from`). O protocolo de iteração base é a [PEP 234](https://peps.python.org/pep-0234/). Anaya dedica o Cap. 7 inteiro a generators/iteradores. *(Ver Levantamento — Clean Code, §3.5.)*
+
 ## 7.3 Comprehensions — transformar coleções declarativamente
 
 **O que resolve:** o boilerplate de criar uma coleção a partir de outra (o loop com `resultado = []; for x in xs: resultado.append(f(x))`).
 
 **O porquê é limpo:** `[f(x) for x in xs if cond(x)]` diz *o que você quer* (o resultado) em vez de *como construí-lo passo a passo* — é declarativo, não imperativo. É mais curto, mais rápido (otimizado internamente), e lê-se como uma descrição do resultado.
+
+**PEP-fonte:** [PEP 202](https://peps.python.org/pep-0202/) (*List Comprehensions*) e [PEP 274](https://peps.python.org/pep-0274/) (*Dict Comprehensions*).
 
 **O limite (crítico — comprehensions são fáceis de abusar):** a comprehension só é mais limpa enquanto *cabe legível numa linha ou duas*. Uma comprehension com dois `for` aninhados e dois `if` é *menos* legível que o loop equivalente, porque comprime lógica demais numa densidade que o olho não decodifica. **A regra:** se você não entende a comprehension numa passada de olho, ela deveria ser um loop. O objetivo é clareza, e a comprehension só serve a ele até certo ponto de complexidade.
 
@@ -314,11 +339,15 @@ Python oferece construções que, bem usadas, tornam o código dramaticamente ma
 
 **O porquê é limpo:** sem property, se você começa com `obj.valor` (atributo público) e depois precisa validar na atribuição, você teria que mudar para `obj.get_valor()`/`obj.set_valor()` — quebrando todo código que usava `obj.valor`. Com `@property`, você adiciona a lógica *mantendo a mesma interface* `obj.valor`. Isto é o *Uniform Access Principle*: quem usa não precisa saber se é um atributo armazenado ou computado. Permite começar simples e adicionar complexidade sem custo de migração.
 
+**Fonte:** `property` é construída sobre o *protocolo de descriptors* (o mecanismo por trás de `__get__`/`__set__`). Anaya dedica o Cap. 6 inteiro a descriptors — é o aprofundamento natural de *como* a property funciona por dentro. Não há um PEP único de property; ela vem da própria evolução do modelo de objetos ([PEP 252](https://peps.python.org/pep-0252/)/[253](https://peps.python.org/pep-0253/)).
+
 ## 7.5 Decorators (`@decorator`) — comportamento transversal
 
 **O que resolve:** o problema de adicionar o mesmo comportamento (logging, cache, timing, validação, registro) a muitas funções sem repetir o código em cada uma.
 
 **O porquê é limpo:** um decorator *envolve* uma função com comportamento adicional sem tocar no corpo dela. `@cache` adiciona memoização; `@log` adiciona registro; sem poluir a lógica da função com essas preocupações. Isto separa o *cross-cutting concern* (a preocupação transversal, que atravessa muitas funções) da *lógica de negócio* (o que a função faz). O `@REGISTER_CAPGEN(["blip"])` do RefCap é um decorator que registra a classe num catálogo — a preocupação "registrar" fica separada da preocupação "gerar legendas", e adicionar um gerador novo não exige tocar no mecanismo de registro. É separação de responsabilidades elegante.
+
+**PEP-fonte:** [PEP 318](https://peps.python.org/pep-0318/) (*Decorators for Functions and Methods*) e [PEP 3129](https://peps.python.org/pep-3129/) (*Class Decorators*). Anaya dedica o Cap. 5 inteiro a decorators — inclusive aos cuidados (preservar metadados com `functools.wraps`, lidar com efeitos colaterais). *(Ver Levantamento — Clean Code, §3.4.)*
 
 ## 7.6 Dunder methods (`__x__`) — integração com o protocolo da linguagem
 
@@ -328,11 +357,15 @@ Python oferece construções que, bem usadas, tornam o código dramaticamente ma
 
 **A conexão direta com o que fizemos:** o `QueryDataset` implementou só `__len__` e `__getitem__` e, com isso, "se passou" por um dataset do PyTorch sem herdar de nada. Isto é *duck typing* — "se implementa o protocolo, *é* do tipo" — e é um pilar do Python. O poder: você satisfaz um contrato pela *forma* (os métodos que implementa), não pela *herança* (de quem você descende). Foi o que tornou nosso adapter possível sem tocar no núcleo.
 
+**PEP-fonte:** os dunders estão espalhados por muitos PEPs (o modelo de dados é parte da própria linguagem). Mas o duck typing que exploramos tem um nome formal e verificável hoje: a **tipagem estrutural** da [PEP 544](https://peps.python.org/pep-0544/) (*Protocols*) — que deixa você *declarar* o contrato (`__len__`+`__getitem__`) como um `Protocol`, em vez de descobri-lo por tentativa. É a ponte deste tópico para a arquitetura. *(Ver Levantamento — Clean Architecture, §Tier 1.)*
+
 ## 7.7 Dataclasses / namedtuples — objetos de dados sem boilerplate
 
 **O que resolve:** o boilerplate de escrever `__init__`, `__repr__`, `__eq__` para classes que são essencialmente *agregados de dados*.
 
 **O porquê é limpo:** um `@dataclass` gera automaticamente o construtor, a representação e a comparação a partir da declaração dos campos. Vinte linhas de boilerplate viram três de declaração. Menos código para escrever, menos para ler, menos para errar (o boilerplate manual é fonte de bugs bobos — esquecer um campo no `__eq__`). E comunica a intenção: "isto é um objeto de dados", não uma classe com comportamento complexo.
+
+**PEP-fonte:** [PEP 557](https://peps.python.org/pep-0557/) (*Data Classes*); para dicionários tipados, [PEP 589](https://peps.python.org/pep-0589/) (*TypedDict*); para tuplas nomeadas com tipo, `typing.NamedTuple` (via [PEP 526](https://peps.python.org/pep-0526/)). *(Ver Levantamento — Clean Code, §3.2.)* No nível de arquitetura, é este o mecanismo dos *value objects* (ver Levantamento — Clean Architecture, §Tier 2).
 
 ---
 
@@ -343,6 +376,8 @@ Python oferece construções que, bem usadas, tornam o código dramaticamente ma
 **O porquê:** Python é dinamicamente tipado — os hints não mudam a execução (o interpretador os ignora). Mas eles pagam em três frentes. Primeiro, **documentação que não mente:** diferente de um comentário `# recebe um int`, um type hint é *verificável* por ferramentas (`mypy`, `pyright`) que reclamam quando o código o viola — então ele não pode desatualizar silenciosamente. Segundo, **ferramentas:** habilitam autocompletar preciso, detecção de erros na IDE antes de rodar, e refactoring seguro (a ferramenta sabe os tipos). Terceiro, **auto-documentação:** `def encode_keys(self, keys: list[str]) -> torch.Tensor` comunica o contrato inteiro sem docstring — o leitor sabe o que entra e o que sai de relance.
 
 **O limite:** não anote obsessivamente cada variável local óbvia (`i: int = 0` é ruído). O valor está nas *fronteiras* — assinaturas de funções públicas, atributos de classe, retornos não óbvios. Lá, o retorno por caractere é altíssimo; em variáveis locais triviais, é cerimônia.
+
+**PEP-fonte:** a fundação é a [PEP 484](https://peps.python.org/pep-0484/) (*Type Hints*), com a teoria na [PEP 483](https://peps.python.org/pep-0483/). Sintaxe moderna: [PEP 585](https://peps.python.org/pep-0585/) (`list[int]` em vez de `List[int]`), [PEP 604](https://peps.python.org/pep-0604/) (`int | None` em vez de `Optional[int]`), [PEP 526](https://peps.python.org/pep-0526/) (anotar variáveis). A raiz histórica é a [PEP 3107](https://peps.python.org/pep-3107/) (anotações de função). Anaya introduz anotações já no Cap. 1. *(Ver Levantamento — Clean Code, §3.1.)* Quando o type hint define não uma assinatura, mas um *contrato de fronteira entre camadas*, ele vira ferramenta de arquitetura — via [PEP 544](https://peps.python.org/pep-0544/) (Protocols).
 
 **Para o seu caso:** em código de pesquisa que você quer manter e entender meses depois, type hints nas fronteiras entre módulos são um dos melhores investimentos de clareza por esforço.
 

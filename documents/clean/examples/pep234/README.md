@@ -1,0 +1,1 @@
+# [PEP 234 – Iterators](http://peps.python.org/pep-0234/)
