@@ -25,7 +25,7 @@ Há uma assimetria cruel aqui: **o código sujo parece mais rápido no curto pra
 
 ---
 
-# PARTE I — CLEAN CODE (o nível micro)
+# [PARTE I — CLEAN CODE (o nível micro)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/code)
 
 O domínio de Anaya: como cada linha, função e classe deve ser escrita em Python especificamente.
 
@@ -214,7 +214,7 @@ Código sem testes não pode ser refatorado com confiança — e código que nã
 
 ---
 
-# PARTE II — CLEAN ARCHITECTURE (o nível macro)
+# [PARTE II — CLEAN ARCHITECTURE (o nível macro)](https://github.com/HelloWounderworld/refcap-implementation/tree/main/documents/clean/pep/architecture)
 
 O domínio de Keen: como organizar as *dependências* de um sistema inteiro para que ele permaneça maleável. Se o clean code é sobre escrever bem cada tijolo, a clean architecture é sobre onde colocar as paredes.
 
@@ -351,7 +351,7 @@ A DIP (§1) exige que o núcleo dependa de uma *abstração*. Python te dá trê
 
 ---
 
-# PARTE III — O RefCap sob as duas lentes (estudo de caso)
+# [PARTE III — O RefCap sob as duas lentes (estudo de caso)](https://github.com/BUAAPY/RefCap)
 
 Aqui a teoria vira julgamento. Aplicando os princípios acima ao código que você está dissecando — honestamente, o que ele acerta e onde peca. **Contexto importa:** o RefCap é um *código de pesquisa*, otimizado para produzir um paper, não para manutenção de longo prazo. Julgá-lo pelos padrões de um sistema de produção seria injusto — mas identificar os pontos é exatamente o que te ajuda a *não* repeti-los no seu próprio sistema.
 
