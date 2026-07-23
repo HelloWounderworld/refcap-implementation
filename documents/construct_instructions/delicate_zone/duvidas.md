@@ -61,9 +61,30 @@ Me ajuda e entender melhor a funcao "get_capgen_class(cfg.caption_generator)(cfg
 
 Alem disso, preciso entender por qual motivo essa funcao foi escolhida para ser aplicado nesse cenario. Qual a finalidade e a importancia que ela exerce para ter que ter sido esse tipo de formato de aplicacao!!
 
-Deixarei em anexo o arquivo, base.py, que eh onde esta sendo chamado a funcao "get_capgen_class(cfg.caption_generator)(cfg, pretrained_models)".
+Deixarei em anexo os arquivos, base.py e BlipCapGener.py, que eh onde esta sendo chamado a funcao "get_capgen_class(cfg.caption_generator)(cfg, pretrained_models)".
+
+O que me deu a entender durante a leitura, seria que, desde o trecho "caption_generator" ate o trecho "construct_pipeline", esta ocorrendo todo umm processo de instaciamento das classes, utilizando os parametros guardados pelo "cfg", para que, no final, em "construct_pipeline.construct()", seja disparado toda uma cadeia de metodos que foram configurados nas respectivas classes que foi feito a instanciacao.
+
+Eu gostaria de saber muito como se chama essa tecnica de programacao, pois, imagino que, seja um tipo de tecnica bastante avancada entre classes e funcoes!! Imagino que, entender ela, me forneceria um grau de abstracao a mais na minha logica de programacao, onde, matematicamente, representado, eu estaria vendo, apenas, uma sequencia de composicoes de funcoes ordenadas, onde tais funcoes, em cada composicao, ela sao escolhidas, de acordo com os parametros que eu configurei em "construct.sh".
+
+Bom, imagino que exista todo um conjunto de tecnica de programacao bastante densa nesse trecho aqui e eu gostaria de saber a fundo de como configurar essas tecnicas e de um exemplo que retrata muito bem isso para testar localmente e entender a abstracao que nela esta atuando!
+
+Basicamente, o que me parece que esta acontecendo aqui, seria que a classe, BaseConstructPipeline, ela esta atuando como um nucleo ou centro onde reune todas as classes que serao considerados para instanciamento e os respectivos metodos que em cada classe possui que esta sendo considerado para preparar o terreno para realizar o fateamento, legenda e segmentacao?
+
+Eu quero saber todas as tecnicas e conceitos de programacao que esta sendo aplicado nessa etapa para eu conseguir aumentar o meu nivel de abstracao e, consequentemente, o nivel de fluidez da leitura dos codigos!!
 
 ## Duvida 4:
+No trecho abaixo:
+
+````markdown
+`self.caption_generator` é a instância de `CapGeneratorBLIP` (montada na Camada 1).
+````
+
+Eu preciso entender melhor a logica de programacao por tras dela!!
+
+Em qual momento ocorreu o instanciamento da classe, BaseConstructPipeline, e em que momento, tambem, foi instanciado a classe, CapGeneratorBLIP?
+
+Pois, querendo ou nao, eu estou vendo aqui que as variaveis que estao aparecendo desde o trecho "caption_generator" ate "construct_pipeline", parece que esta ocorrendo uma especie de uma variavel se comportando como um camaleao, no momento em que ocorre o instanciamento das classes, conforme os parametros que foi estabelecidos pelo "construct.sh"? Creio que existe um nome para essa tecnica de programacao?
 
 ## Duvida 5:
 
