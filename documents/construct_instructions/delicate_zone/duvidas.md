@@ -87,6 +87,15 @@ Em qual momento ocorreu o instanciamento da classe, BaseConstructPipeline, e em 
 Pois, querendo ou nao, eu estou vendo aqui que as variaveis que estao aparecendo desde o trecho "caption_generator" ate "construct_pipeline", parece que esta ocorrendo uma especie de uma variavel se comportando como um camaleao, no momento em que ocorre o instanciamento das classes, conforme os parametros que foi estabelecidos pelo "construct.sh"? Creio que existe um nome para essa tecnica de programacao?
 
 ## Duvida 5:
+No trecho abaixo:
+
+````markdown
+**Arquivo:** `pipeline/capgenerator/base.py`, linhas 39–48.
+
+A chamada `self.caption_generator(vid_list=...)` cai no `__call__` da classe base (herdada por `CapGeneratorBLIP`):
+````
+
+Eu gostaria de entender melhor como cada classe e quais as equivalencias em que cada variavel elas carregam para que, no final, eu entenda, quais as principais funcoes estao sendo processados ate essa parte da Camada 3!
 
 ## Duvida 6:
 
