@@ -3,7 +3,14 @@
 
 ---
 
-> **O que é este documento.** A análise linha a linha dos **três passos** que vão do vídeo bruto até os segmentos legendados: (1) **Fatiamento** (vídeo → frames), (2) **Image→Text** (frame → legenda, via BLIP), (3) **Segmentação** (agrupar segundos em eventos + selecionar a legenda de cada um). Cada sintaxe é explicada: o que faz e por que está formulada daquela forma. Depois (§5), aponto **exatamente onde intervir** para o seu objetivo — uma legenda por cena — e **qual é o passo delicado** a cuidar.
+> **O que é este documento.** A análise linha a linha dos **três passos** que vão do vídeo bruto até os segmentos legendados: 
+> - (1) **Fatiamento** (vídeo → frames); 
+> - (2) **Image→Text** (frame → legenda, via BLIP); 
+> - (3) **Segmentação** (agrupar segundos em eventos + selecionar a legenda de cada um).
+> 
+> Cada sintaxe é explicada: o que faz e por que está formulada daquela forma.
+> 
+> Depois (§5), aponto **exatamente onde intervir** para o seu objetivo — uma legenda por cena — e **qual é o passo delicado** a cuidar.
 >
 > **O seu objetivo (do nosso alinhamento).** Cada vídeo que você receberá **já é a cena** que você quer. Você quer **uma legenda por cena**, pulando o **agrupamento** da segmentação mas mantendo a **seleção da melhor legenda**. Concluímos que a via recomendada (Alternativa 1) é obtê-la **por configuração, sem alterar código** — e este relatório prova onde e por quê.
 >
@@ -112,7 +119,12 @@ Um dicionário por vídeo:
 
 ## 3. PASSO 3 — Segmentação (`propgenerator/QMPropGener.py`)
 
-Este é o passo mais complexo e o mais importante para a sua decisão. Ele faz **duas coisas separadas**: **(a) agrupar** segundos em eventos e **(b) selecionar** a legenda de cada evento. Vamos aos dois.
+Este é o passo mais complexo e o mais importante para a sua decisão. Ele faz **duas coisas separadas**:
+
+- **(a) agrupar** segundos em eventos e
+- **(b) selecionar** a legenda de cada evento.
+
+Vamos aos dois.
 
 ### 3.1 O orquestrador — `QMPropGener.py:44-66`
 ```python
