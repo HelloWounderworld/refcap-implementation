@@ -1,0 +1,29 @@
+COMO RODAR A SUITE DE TESTES DO WholePropGenerator
+===================================================
+
+A suite testa a LOGICA do componente sem precisar de torch, spacy,
+sentence_transformers, modelos BLIP nem videos. Ela usa stubs que reproduzem
+o contrato real do RefCap -- INCLUSIVE o assert de shape de sim_utils.py:87.
+
+  1. Copie esta pasta para /tmp/tb  (ou ajuste os caminhos no teste)
+  2. Copie o WholePropGener.py para pipeline/propgenerator/
+  3. Copie o base.py REAL do repo para pipeline/propgenerator/
+  4. Rode:  python3 test_WholePropGener.py
+
+Requisito: apenas numpy.
+
+O que cada grupo verifica:
+  T1  registro no registry e herança da ABC
+  T2  contrato de saida que build_tree_meta:177 le (st, ed, cap, keys)
+  T3  o segmento cobre [0, duration] -- nenhuma fronteira detectada
+  T4  o ranking: todos os sinais presentes e ordenacao correta
+  T5  deduplicacao (case e pontuacao normalizados, n_occurrences correto)
+  T6  ramo n_distinct==1: NAO chama a matriz, e NaO propaga NaN
+  T7  todas as legendas identicas caem no ramo curto
+  T8  chaves str (2a execucao, recarregado do .jsonl)
+  T9  ordem temporal preservada com chaves fora de ordem
+  T10 video ausente em captions nao estoura (o KeyError do QMPropGenerator)
+  T11 cena com zero frames (duracao < 1s) nao estoura
+  T12 o assert de shape de sim_utils.py:87 e' respeitado
+  T13 persistencia no caminho esperado
+  T14 keywords coletadas de TODAS as legendas
