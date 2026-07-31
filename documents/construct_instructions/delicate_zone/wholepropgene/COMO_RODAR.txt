@@ -1,29 +1,57 @@
-COMO RODAR A SUITE DE TESTES DO WholePropGenerator
-===================================================
+SUITE DE TESTES DO WholePropGenerator
+=====================================
 
-A suite testa a LOGICA do componente sem precisar de torch, spacy,
-sentence_transformers, modelos BLIP nem videos. Ela usa stubs que reproduzem
-o contrato real do RefCap -- INCLUSIVE o assert de shape de sim_utils.py:87.
+RODAR:
+    cd whole_test/
+    python3 test_WholePropGener.py
 
-  1. Copie esta pasta para /tmp/tb  (ou ajuste os caminhos no teste)
-  2. Copie o WholePropGener.py para pipeline/propgenerator/
-  3. Copie o base.py REAL do repo para pipeline/propgenerator/
-  4. Rode:  python3 test_WholePropGener.py
+Requisito: apenas numpy. Nao precisa de torch, spacy, sentence_transformers,
+modelos BLIP nem videos.
 
-Requisito: apenas numpy.
+A suite e' PORTAVEL: os caminhos sao resolvidos a partir da localizacao do
+proprio arquivo, entao ela roda de qualquer pasta, sem editar nada.
 
-O que cada grupo verifica:
-  T1  registro no registry e herança da ABC
-  T2  contrato de saida que build_tree_meta:177 le (st, ed, cap, keys)
-  T3  o segmento cobre [0, duration] -- nenhuma fronteira detectada
-  T4  o ranking: todos os sinais presentes e ordenacao correta
-  T5  deduplicacao (case e pontuacao normalizados, n_occurrences correto)
-  T6  ramo n_distinct==1: NAO chama a matriz, e NaO propaga NaN
-  T7  todas as legendas identicas caem no ramo curto
-  T8  chaves str (2a execucao, recarregado do .jsonl)
-  T9  ordem temporal preservada com chaves fora de ordem
-  T10 video ausente em captions nao estoura (o KeyError do QMPropGenerator)
-  T11 cena com zero frames (duracao < 1s) nao estoura
-  T12 o assert de shape de sim_utils.py:87 e' respeitado
-  T13 persistencia no caminho esperado
-  T14 keywords coletadas de TODAS as legendas
+Saida esperada:  RESULTADO: TODOS OS TESTES PASSARAM   (56 verificacoes)
+
+--------------------------------------------------------------------------
+O QUE HA' NESTA PASTA
+
+  test_WholePropGener.py            a suite
+  pipeline/propgenerator/base.py    ARQUIVO REAL do repo (nao e' stub) --
+                                    e' ele que define registry, decorador e ABC
+  pipeline/propgenerator/WholePropGener.py   o componente sob teste
+  utils/sim_utils.py                stub que reproduz get_caption_frame_sims
+                                    INCLUSIVE o assert de shape (sim_utils.py:87)
+  utils/tree_utils.py               stub deterministico de get_nouns_verbs
+  utils/basic_utils.py              stub de save_json (captura em memoria)
+  stubs/                            torch, spacy, tqdm, sentence_transformers,
+                                    e faketensor (ndarray com .to/.cpu/.t/.item)
+
+--------------------------------------------------------------------------
+OS 14 GRUPOS
+
+  T1   registro no registry, heranca da ABC
+  T2   contrato de saida lido por build_tree_meta:177 (st, ed, cap, keys)
+  T3   um unico segmento cobrindo [0, duration]
+  T4   ranking: todos os sinais presentes, ordenacao correta
+  T5   deduplicacao (caixa e pontuacao), n_occurrences e frames
+  T6 * ramo n_distinct==1: NAO chama a matriz, NAO propaga NaN, JSON valido
+  T7   todas as legendas identicas caem no ramo curto
+  T8   chaves str (2a execucao, recarregado do .jsonl)
+  T9   ordem temporal reconstruida com chaves fora de ordem
+  T10* video ausente em captions nao estoura (o KeyError do QMPropGenerator)
+  T11  cena com zero frames (duracao < 1s) nao estoura
+  T12* o assert de shape e' respeitado (chamada com TODAS as N legendas)
+  T13  persistencia no caminho esperado
+  T14  keywords coletadas de TODAS as legendas
+
+  (*) verificam defeitos reais do QMPropGenerator que este componente evita.
+
+--------------------------------------------------------------------------
+LIMITE
+
+A suite testa a LOGICA contra o CONTRATO. Ela nao valida a qualidade das
+legendas escolhidas, nem o comportamento com BLIP real, nem o impacto nas
+metricas de recuperacao -- para isso e' preciso rodar o pipeline de verdade.
+
+Manual completo: RefCap_Manual_WholePropGenerator.md
