@@ -73,8 +73,14 @@ class BuildArguments(BasicArguments):
     )
     proposal_generator: str = field(
         default="qm",
-        metadata={"choices": ["qm"]}
+        # metadata={"choices": ["qm"]}
+        metadata={"choices": ["qm", "whole"]}
     )
+    whole_rank_by: str = field(
+        default="scene_score",
+        metadata={"choices": ["scene_score", "self_score", "consensus", "pipeline_score"]}
+    )
+    whole_dedup: bool = True
     figsim_denoise_thr: float = field(
         default=0.4,
         metadata={"help": "threshold used in figsim captioin denoising"}

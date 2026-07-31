@@ -1,4 +1,4 @@
-# Manual de Uso — `WholePropGener.py` e `test_WholePropGener.py`
+# Manual de Uso — `WholePropGener.py` e a Suíte `test/`
 ## Instalação, Execução, Leitura da Saída, e o Mapa de Alinhamento com as Decisões
 
 ---
@@ -7,7 +7,7 @@
 >
 > **Os dois arquivos:**
 > - `WholePropGener.py` — o componente. Vai para `pipeline/propgenerator/` no repositório.
-> - `test_WholePropGener.py` — a suíte de 56 verificações. Roda **sem** torch, spacy, BLIP ou vídeos.
+> - `test/conftest.py` + `test/test_whole_propgen.py` — a suíte pytest, **48 testes**. Vai para `<raiz-do-repo>/test/`. Roda **sem** torch, spacy, BLIP ou vídeos.
 >
 > **Documentos de base:** `RefCap_Projeto_WholePropGenerator.md` (a especificação), `RefCap_Similaridade_Segmentacao_e_Selecao.md` (o diagnóstico), `Fundamentos_Embeddings_Gram_e_Argmax.md` (a matemática), `ERRATA_Relatorios_RefCap.md` (o que foi refutado).
 
@@ -28,6 +28,27 @@
 # PARTE 1 — Instalação
 
 São **três edições**: uma cópia de arquivo e duas linhas. Nenhum arquivo existente tem lógica alterada.
+
+## 1.0 Onde cada arquivo vai
+
+```
+<raiz-do-repo-RefCap>/
+├── config/
+│   └── cfg.py                          ← EDITAR a linha 76 (§1.3)
+├── pipeline/
+│   └── propgenerator/
+│       ├── __init__.py                 ← EDITAR: +1 linha (§1.2)
+│       ├── base.py                      (não tocar)
+│       ├── QMPropGener.py               (não tocar)
+│       └── WholePropGener.py           ← COPIAR para cá (§1.1)
+└── test/                               ← CRIAR esta pasta
+    ├── conftest.py                     ← COPIAR
+    └── test_whole_propgen.py           ← COPIAR
+```
+
+**[J] Por que `test/` na raiz do repositório:** é a convenção do pytest, e o `conftest.py` depende dela — ele resolve a raiz do repo como o **diretório-pai** de onde está (`pathlib.Path(__file__).resolve().parent.parent`) para tornar `pipeline` e `utils` importáveis. Se você puser a pasta em outro nível, ajuste esse cálculo.
+
+**[V] Verificado:** com essa estrutura, `pytest` funciona da raiz, de dentro de `test/`, com caminho explícito e por teste individual (§5.1).
 
 ## 1.1 Copiar o componente
 
@@ -216,70 +237,91 @@ Saída **real** do componente (gerada nesta sessão), para uma cena de 4 s com 4
 
 ---
 
-# PARTE 5 — A suíte de testes
+# PARTE 5 — A suíte de testes (pytest)
 
 ## 5.1 Como rodar
 
+Da **raiz do repositório**:
+
 ```bash
-cd whole_test/
-python3 test_WholePropGener.py
+pytest test/ -v
 ```
 
-**Requisito: apenas `numpy`.** Nem torch, nem spacy, nem sentence-transformers, nem modelos BLIP, nem vídeos.
+**[V] Quatro formas verificadas**, todas funcionam:
 
-**[V] A suíte é portável.** Verifiquei rodando de uma pasta nova, com o diretório original renomeado: as 56 verificações passam. Os caminhos são resolvidos a partir da localização do próprio arquivo (`pathlib.Path(__file__).resolve().parent`).
+| comando | de onde | resultado |
+|---|---|---|
+| `pytest test/ -v` | raiz do repo | 48 passed |
+| `pytest` | raiz do repo (descoberta automática) | 48 passed |
+| `pytest -q` | de dentro de `test/` | 48 passed |
+| `pytest test/test_whole_propgen.py::TestRamosDeExecucao` | raiz | 8 passed |
 
-**Saída esperada:** `RESULTADO: TODOS OS TESTES PASSARAM`.
+**Requisitos: apenas `numpy` e `pytest`.** Nem torch, nem spacy, nem sentence-transformers, nem modelos BLIP, nem vídeos. A suíte roda em ~0,15 s.
 
-## 5.2 Como ela funciona
+## 5.2 ★ A suíte detecta instalação incompleta
 
-O ambiente `whole_test/` contém *stubs* que reproduzem o **contrato** do RefCap:
+Esta é a razão principal de rodá-la logo após instalar. **[V] Verifiquei quebrando de propósito:**
 
-| stub | reproduz |
+| o que foi removido | resultado do pytest |
 |---|---|
-| `utils/sim_utils.py` | `get_caption_frame_sims` **incluindo o `assert` de shape** (o real está em `sim_utils.py:87`) |
-| `utils/tree_utils.py` | `get_nouns_verbs` de forma determinística |
-| `utils/basic_utils.py` | `save_json`, capturando em memória para inspeção |
-| `stubs/faketensor.py` | um `ndarray` com `.to()`, `.cpu()`, `.t()`, `.item()`, `.numpy()` |
-| `pipeline/propgenerator/base.py` | **não é stub — é o arquivo REAL do repositório** |
+| a linha `from . import WholePropGener` do `__init__.py` (§1.2) | **5 failed, 42 errors** |
+| o arquivo `WholePropGener.py` da pasta | **48 errors** |
+| nada (instalação correta) | **48 passed** |
 
-**[J] Por que o `base.py` é o real:** é ele que define o registry, o decorador e a ABC. Testar contra um stub dele não provaria que o componente registra e herda corretamente no repositório de verdade.
+**[J]** Ou seja: se você esquecer qualquer uma das duas primeiras edições da instalação, a suíte grita. Ela não testa só o componente — testa que ele **está corretamente plugado no registry do repositório**.
 
-## 5.3 O que cada grupo verifica
+## 5.3 Como o isolamento funciona
 
-| grupo | verifica |
-|---|---|
-| **T1** | registro no registry, herança da ABC, instanciabilidade |
-| **T2** | contrato de saída: `st`, `ed`, `cap`, `keys`; `cap` == topo do ranking |
-| **T3** | um único segmento cobrindo `[0, duration]` |
-| **T4** | todos os sinais presentes; ordenação decrescente correta |
-| **T5** | dedup: caixa e pontuação normalizadas; `n_occurrences` e `frames` corretos |
-| **T6** | ★ ramo `n_distinct==1`: **não** chama a matriz; **não** propaga NaN; JSON válido |
-| **T7** | todas as legendas idênticas caem no ramo curto |
-| **T8** | chaves `str` (2ª execução, recarregado do `.jsonl`) dão o mesmo resultado que `int` |
-| **T9** | ordem temporal reconstruída com chaves fora de ordem |
-| **T10** | ★ vídeo ausente em `captions` **não estoura** (o `KeyError` do `QMPropGenerator`) |
-| **T11** | cena com zero frames não estoura |
-| **T12** | ★ o `assert` de shape é respeitado — chamada com **todas** as N legendas |
-| **T13** | persistência no caminho esperado |
-| **T14** | keywords vêm de **todas** as legendas, não só da vencedora |
+O `conftest.py` injeta *stubs* em `sys.modules` **antes** de qualquer import de `pipeline`. O que é stub e o que é real:
 
-**[J] Os três marcados com ★ são os que verificam defeitos reais** que mapeamos no `QMPropGenerator` e que este componente evita.
+| módulo | stub ou real | por quê |
+|---|---|---|
+| `torch`, `spacy`, `tqdm`, `sentence_transformers` | **stub** | evita dependências pesadas e carga de modelos |
+| `utils.sim_utils` | **stub** | reproduz `get_caption_frame_sims` **com o `assert` de shape** de `sim_utils.py:87` |
+| `utils.tree_utils`, `utils.basic_utils` | **stub** | determinismo; `save_json` captura em memória |
+| `pipeline/propgenerator/base.py` | **REAL** | define registry, decorador e ABC |
+| `pipeline/propgenerator/__init__.py` | **REAL** | é a linha de integração sendo testada |
+| `WholePropGener.py` | **REAL** | é o componente sob teste |
 
-## 5.4 Como estender
+**[J] Manter `base.py` e `__init__.py` reais é deliberado.** Testar contra stubs deles não provaria que o componente se registra no repositório de verdade — e é justamente esse o modo de falha mais provável na instalação.
 
-Para adicionar um caso, siga o padrão do arquivo:
+**⚠️ [J] Escopo dos stubs.** O `conftest.py` afeta **toda a pasta onde está**. Se você acrescentar testes que precisem do torch de verdade, ponha-os em outra pasta com o próprio `conftest.py` — senão receberão o stub.
+
+## 5.4 O que cada classe verifica
+
+| classe | testes | verifica |
+|---|---|---|
+| `TestRegistro` | 6 | registro no registry, herança da ABC, defaults, rejeição de critério inválido |
+| `TestContratoDeSaida` | 9 | `st`/`ed`/`cap`/`keys`; `cap` == topo do ranking; JSON serializável |
+| `TestRanking` | 11 | os 6 sinais presentes; ordenação decrescente; ordenação alternativa |
+| `TestDeduplicacao` | 5 | caixa e pontuação normalizadas; `n_occurrences`; dedup desligável |
+| `TestRamosDeExecucao` | 8 | ★ ramo curto não chama a matriz nem propaga NaN; mesmo caminho para N=2..12 |
+| `TestRobustez` | 5 | ★ vídeo ausente não estoura; zero frames; chaves `str`; ordem temporal; cena longa |
+| `TestIntegracao` | 4 | ★ `assert` de shape; persistência; keywords de todas; diagnóstico não polui |
+
+**[J] Os três marcados com ★ verificam defeitos reais** que mapeamos no `QMPropGenerator` e que este componente evita — em especial o `KeyError` de vídeo ausente e o `NaN` de `N=1`.
+
+## 5.5 Como estender
+
+Os auxiliares vêm do `conftest.py`:
+
 ```python
-res = gen(["vidX.mp4"], [montar("vidX", ["legenda A", "legenda B"], 2.0)],
-          {"vidX": ft(np.array([.9, .8]))},      # capframe_scores (pode ter NaN)
-          {"vidX": features(2, seed=42)})        # features de frame
-check("descrição do que espero", condição)
+from conftest import montar_captions, features_de_frame, ft, CHAMADAS_SIM_UTILS
+
+def test_meu_caso(gen):
+    resultado = gen(
+        ["vidX.mp4"],
+        [montar_captions("vidX", ["legenda A", "legenda B"], 2.0)],
+        {"vidX": ft(np.array([0.9, 0.8]))},   # capframe_scores (pode ter NaN)
+        {"vidX": features_de_frame(2, seed=42)},
+    )
+    assert resultado["vidX"]["proposals"][0]["n_distinct"] == 2
 ```
-`montar(vid, caps, duration, chaves_str=False)` monta o dicionário de legendas; `features(n, seed)` gera vetores normalizados; `ft(...)` embrulha um array com a API mínima de tensor.
 
-**[J] Limite honesto da suíte:** ela testa a **lógica** do componente contra o contrato. Ela **não** valida a qualidade das legendas escolhidas, nem o comportamento com BLIP real, nem o impacto nas métricas de recuperação. Para isso é preciso rodar o pipeline de verdade.
+*Fixtures* disponíveis: `gen` (gerador pronto), `cfg` (config com `exp_dir` temporário do pytest), `models` (modelos falsos), `registry` (o registry real).
 
----
+**[J] Limite honesto da suíte:** ela testa a **lógica** contra o **contrato**. Não valida a qualidade das legendas escolhidas, nem o comportamento com BLIP real, nem o impacto nas métricas de recuperação — para isso é preciso rodar o pipeline de verdade.
+
 
 # PARTE 6 — Configuração
 
