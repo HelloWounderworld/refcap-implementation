@@ -18,6 +18,7 @@ ORGANIZAÇÃO
 Cada teste cita, quando aplicável, a linha do RefCap que motivou a verificação.
 """
 import json
+import os
 
 import numpy as np
 import pytest
@@ -369,8 +370,17 @@ class TestIntegracao:
         assert chamada["n_legendas"] == chamada["shape_frames"][0]
 
     def test_proposals_json_e_gravado(self, gen, cfg, cena_simples):
-        caminho = f"{cfg.exp_dir}/proposals.json"
-        assert caminho in JSON_SALVO
+        """O caminho tem de ser montado como o componente monta.
+
+        ⚠️ Usar f-string com "/" quebraria no Windows: o componente usa
+        `os.path.join`, que produz "\\" naquele sistema, e a chave não bateria.
+        No Linux os dois coincidem — por isso um teste com f-string passaria
+        aqui e falharia lá.
+        """
+        esperado = os.path.join(cfg.exp_dir, "proposals.json")
+        assert esperado in JSON_SALVO, (
+            f"esperado: {esperado!r}\nsalvos:   {list(JSON_SALVO)!r}"
+        )
 
     def test_keywords_vem_de_todas_as_legendas(self, cena_simples):
         """Não só da vencedora — o ramo GloVe da busca consome todas."""

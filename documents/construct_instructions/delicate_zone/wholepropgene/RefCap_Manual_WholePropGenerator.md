@@ -48,7 +48,7 @@ São **três edições**: uma cópia de arquivo e duas linhas. Nenhum arquivo ex
 
 ### Em que nível a pasta de testes pode ficar
 
-**Em qualquer nível, desde que esteja DENTRO do repositório clonado.**
+**Em qualquer nível, desde que esteja DENTRO da árvore do RefCap.**
 
 O `conftest.py` localiza a raiz **subindo** a partir de onde está até achar o marcador `pipeline/propgenerator/base.py`. Não há suposição de profundidade.
 
@@ -56,16 +56,74 @@ O `conftest.py` localiza a raiz **subindo** a partir de onde está até achar o 
 
 | onde a pasta ficou | resultado |
 |---|---|
-| `<repo>/test/` | 48 passed |
-| `<repo>/test/whole_test/` | 48 passed |
-| `<repo>/tests/` | 48 passed |
-| `<repo>/a/b/c/meus_testes/` | 48 passed |
+| `<refcap>/test/` | 48 passed |
+| `<refcap>/test/whole_test/` | 48 passed |
+| `<refcap>/tests/` | 48 passed |
+| `<refcap>/a/b/c/meus_testes/` | 48 passed |
 
-**[J] Se quiser a estrutura que você mencionou** — `whole_test` dentro de `test` — basta criar `test/whole_test/` e pôr os dois arquivos lá. Funciona sem nenhum ajuste.
+### ★ Caso comum: o RefCap dentro de `src/`
 
-**⚠️ Um cuidado se você tiver várias pastas de teste:** o pytest recusa dois arquivos com o **mesmo nome-base** dentro da mesma árvore de coleta (erro `import file mismatch`). Se for ter mais de uma suíte, ou dê nomes distintos aos arquivos, ou acrescente um `__init__.py` em cada pasta.
+Se você clonou o RefCap para dentro do seu próprio repositório e o renomeou (ex.: `src/`), a estrutura fica assim — e **funciona sem ajuste**:
 
-**Fora do repositório não funciona** — e a falha é explícita, não silenciosa:
+```
+meu-repositorio/
+├── .venv/                        (ignorado automaticamente pelo pytest)
+├── documents/
+└── src/                          ← a raiz do RefCap
+    ├── config/cfg.py             ← EDITAR
+    ├── pipeline/propgenerator/
+    │   ├── __init__.py           ← EDITAR
+    │   └── WholePropGener.py     ← COPIAR
+    ├── utils/
+    └── test/                     ← CRIAR
+        ├── conftest.py
+        └── test_whole_propgen.py
+```
+
+**[V] Verificado nesta estrutura:** o marcador faz a busca **parar em `src/`**, sem subir até `meu-repositorio/` — que é o comportamento correto, já que é `src/` que contém `pipeline` e `utils`.
+
+**[V] E a suíte roda de qualquer um destes lugares:**
+
+| de onde | comando | resultado |
+|---|---|---|
+| `meu-repositorio/` | `pytest src/test` | 48 passed |
+| `meu-repositorio/` | `pytest` | 48 passed |
+| `src/` | `pytest test` | 48 passed |
+| `src/` | `pytest` | 48 passed |
+| `src/test/` | `pytest` | 48 passed |
+
+**[V] `pytest.ini` não atrapalha** — testei com `testpaths = test` e com `addopts = --import-mode=importlib`; a suíte passa nos dois.
+
+**[V] O `.venv/` é ignorado** sem configuração: o padrão de `norecursedirs` do pytest já exclui diretórios que começam com ponto.
+
+### ⚠️ Cuidado se você tiver OUTRAS pastas de teste
+
+**[V] Demonstrado:** o `conftest.py` injeta os stubs para **toda a subárvore onde está**. Se a estrutura for
+
+```
+test/
+├── conftest.py            ← os stubs daqui valem para TUDO abaixo
+├── test_whole_propgen.py
+├── integration/           ← recebe torch STUB, não o real
+└── e2e/                   ← idem
+```
+
+os testes de `integration/` e `e2e/` que precisem do torch de verdade **quebram** — reproduzi o caso e o erro é `AttributeError: module 'torch' has no attribute 'tensor'`.
+
+**A solução, se isso acontecer:** mova os dois arquivos para uma subpasta própria, de modo que o escopo do stub fique contido:
+
+```
+test/
+├── integration/           ← sem conftest de stub: torch real
+├── e2e/                   ← idem
+└── whole_propgen/         ← escopo isolado
+    ├── conftest.py
+    └── test_whole_propgen.py
+```
+
+**[V] Verificado:** com o `conftest.py` na subpasta, ele continua achando a raiz (a busca por marcador é independente de nível) e os stubs deixam de afetar os irmãos.
+
+**Fora da árvore do RefCap não funciona** — e a falha é explícita, não silenciosa:
 ```
 RuntimeError: Não encontrei a raiz do RefCap subindo a partir de /caminho/errado.
 Esperava achar 'pipeline/propgenerator/base.py' em algum diretório ancestral.
@@ -279,6 +337,8 @@ pytest test/ -v
 | `pytest test/test_whole_propgen.py::TestRamosDeExecucao` | raiz | 8 passed |
 
 **Requisitos: apenas `numpy` e `pytest`.** Nem torch, nem spacy, nem sentence-transformers, nem modelos BLIP, nem vídeos. A suíte roda em ~0,15 s.
+
+**[V] Multiplataforma.** Caminhos são montados com `os.path.join` (nunca com f-string e `/`), como o componente faz. Isso importa: no Windows `os.path.join` produz `\`, e uma comparação com `/` falharia — um teste assim passaria no Linux e quebraria no Windows. Verifiquei a correção por simulação com `ntpath` executando o componente real; **não** rodei numa máquina Windows de verdade.
 
 ## 5.2 ★ A suíte detecta instalação incompleta
 
