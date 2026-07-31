@@ -41,14 +41,36 @@ São **três edições**: uma cópia de arquivo e duas linhas. Nenhum arquivo ex
 │       ├── base.py                      (não tocar)
 │       ├── QMPropGener.py               (não tocar)
 │       └── WholePropGener.py           ← COPIAR para cá (§1.1)
-└── test/                               ← CRIAR esta pasta
+└── test/                               ← CRIAR (nome e nível livres — ver abaixo)
     ├── conftest.py                     ← COPIAR
     └── test_whole_propgen.py           ← COPIAR
 ```
 
-**[J] Por que `test/` na raiz do repositório:** é a convenção do pytest, e o `conftest.py` depende dela — ele resolve a raiz do repo como o **diretório-pai** de onde está (`pathlib.Path(__file__).resolve().parent.parent`) para tornar `pipeline` e `utils` importáveis. Se você puser a pasta em outro nível, ajuste esse cálculo.
+### Em que nível a pasta de testes pode ficar
 
-**[V] Verificado:** com essa estrutura, `pytest` funciona da raiz, de dentro de `test/`, com caminho explícito e por teste individual (§5.1).
+**Em qualquer nível, desde que esteja DENTRO do repositório clonado.**
+
+O `conftest.py` localiza a raiz **subindo** a partir de onde está até achar o marcador `pipeline/propgenerator/base.py`. Não há suposição de profundidade.
+
+**[V] Verificado — os quatro casos rodados de fora do repositório** (para o diretório atual não mascarar o resultado):
+
+| onde a pasta ficou | resultado |
+|---|---|
+| `<repo>/test/` | 48 passed |
+| `<repo>/test/whole_test/` | 48 passed |
+| `<repo>/tests/` | 48 passed |
+| `<repo>/a/b/c/meus_testes/` | 48 passed |
+
+**[J] Se quiser a estrutura que você mencionou** — `whole_test` dentro de `test` — basta criar `test/whole_test/` e pôr os dois arquivos lá. Funciona sem nenhum ajuste.
+
+**⚠️ Um cuidado se você tiver várias pastas de teste:** o pytest recusa dois arquivos com o **mesmo nome-base** dentro da mesma árvore de coleta (erro `import file mismatch`). Se for ter mais de uma suíte, ou dê nomes distintos aos arquivos, ou acrescente um `__init__.py` em cada pasta.
+
+**Fora do repositório não funciona** — e a falha é explícita, não silenciosa:
+```
+RuntimeError: Não encontrei a raiz do RefCap subindo a partir de /caminho/errado.
+Esperava achar 'pipeline/propgenerator/base.py' em algum diretório ancestral.
+Coloque a pasta de testes DENTRO do repositório clonado.
+```
 
 ## 1.1 Copiar o componente
 

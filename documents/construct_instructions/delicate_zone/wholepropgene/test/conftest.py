@@ -21,8 +21,15 @@ Este `conftest.py` afeta TODA a pasta onde está. Se você adicionar testes que
 precisem do torch de verdade, coloque-os em outra pasta, com o próprio
 conftest — senão eles receberão o stub.
 
-ONDE ESTE ARQUIVO DEVE FICAR
-    <raiz-do-repo>/test/conftest.py
+ONDE ESTA PASTA PODE FICAR
+Em QUALQUER nível DENTRO do repositório clonado. A raiz é localizada subindo
+até achar `pipeline/propgenerator/base.py`. Exemplos que funcionam:
+    <repo>/test/
+    <repo>/tests/
+    <repo>/test/whole_test/
+    <repo>/qualquer/coisa/aqui/
+O que NÃO funciona é pôr a pasta FORA do repositório — aí não há como
+encontrar `pipeline` e `utils`.
 """
 import sys
 import types
@@ -33,9 +40,29 @@ import pytest
 
 # --------------------------------------------------------------------------- #
 # Torna a raiz do repositório importável (para `pipeline` e `utils`).
-# Este arquivo vive em <repo>/test/, logo a raiz é o diretório-pai.
+#
+# A raiz é localizada SUBINDO a partir deste arquivo até encontrar o marcador
+# `pipeline/propgenerator/base.py`. Isso torna a suíte independente do nível:
+# ela funciona em <repo>/test/, <repo>/tests/whole/, <repo>/a/b/c/, etc.
+#
+# (A alternativa ingênua — `parent.parent` — obrigaria a pasta a estar
+#  exatamente um nível abaixo da raiz.)
 # --------------------------------------------------------------------------- #
-_RAIZ_REPO = pathlib.Path(__file__).resolve().parent.parent
+_MARCADOR = pathlib.Path("pipeline") / "propgenerator" / "base.py"
+
+
+def _encontrar_raiz_do_repo(inicio: pathlib.Path) -> pathlib.Path:
+    for candidato in [inicio, *inicio.parents]:
+        if (candidato / _MARCADOR).is_file():
+            return candidato
+    raise RuntimeError(
+        f"Não encontrei a raiz do RefCap subindo a partir de {inicio}.\n"
+        f"Esperava achar '{_MARCADOR}' em algum diretório ancestral.\n"
+        f"Coloque a pasta de testes DENTRO do repositório clonado."
+    )
+
+
+_RAIZ_REPO = _encontrar_raiz_do_repo(pathlib.Path(__file__).resolve().parent)
 if str(_RAIZ_REPO) not in sys.path:
     sys.path.insert(0, str(_RAIZ_REPO))
 
