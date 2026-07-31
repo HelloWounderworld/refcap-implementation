@@ -43,8 +43,10 @@ class VideoDatasetPerSec(Dataset):
                 print('ffprobe failed at: {}'.format(video_path))
                 return torch.zeros(1)
             height, width = self._get_output_dim(h, w)
-            frames = [] 
-            for i in range(int(duration)):
+            frames = []
+            n_amostras = max(1, int(duration)) 
+            # for i in range(int(duration)):
+            for i in range(n_amostras):
                 cmd = (
                     ffmpeg
                     .input(video_path, ss=i, t=1)
