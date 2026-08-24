@@ -1,0 +1,35 @@
+version: '3.9'
+
+services:
+  caption_cut_by_prompt:
+    container_name: caption_cut_by_prompt
+    hostname: caption_cut_by_prompt
+    shm_size: "16gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities: ["gpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USERNAME: ${USERNAME}
+        GROUPNAME: ${GROUPNAME}
+        UID: ${UID}
+        GID: ${GID}
+    user: ${USERNAME}
+    ports:
+      - ${UI_PORT_PROD}:8000
+    working_dir: /${USERNAME}
+    volumes:
+      - ./../:/${USERNAME}
+      - ./../:/var/log
+    tty: true
+    logging:
+      driver: json-file
+      options:
+        max-file: '5'
+        max-size: '10m'
