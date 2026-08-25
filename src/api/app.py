@@ -229,3 +229,28 @@ async def consultar_job(job_id: str) -> dict:
 @app.get("/jobs", summary="Lista os jobs recentes")
 async def listar_jobs(limite: int = 50) -> dict:
     return {"jobs": registro.listar(limite)}
+
+
+# --------------------------------------------------------------------------- #
+# Execução direta
+# --------------------------------------------------------------------------- #
+if __name__ == "__main__":
+    # ⚠️ SEM este bloco, `python app.py` não sobe servidor nenhum: o módulo é
+    # importado, o objeto `app` é criado, e o processo termina. O lifespan
+    # NUNCA roda — e portanto os modelos nunca são carregados.
+    #
+    # Em produção quem sobe é o supervisord chamando o uvicorn direto:
+    #     uvicorn app:app --host 0.0.0.0 --port 8000
+    # Este bloco existe para desenvolvimento e diagnóstico.
+    import uvicorn
+
+    uvicorn.run(
+        "app:app",
+        host=os.environ.get("HOST", "0.0.0.0"),
+        port=int(os.environ.get("PORT", "8000")),
+        # reload=False de propósito: com reload, o uvicorn cria um processo
+        # filho e recarrega o app a cada mudança de arquivo — os modelos seriam
+        # recarregados junto, o que anula o estado permanente.
+        reload=False,
+        log_level=os.environ.get("LOG_LEVEL", "info").lower(),
+    )
