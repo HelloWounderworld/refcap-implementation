@@ -64,6 +64,7 @@ class ModelosResidentes:
         self.blip_itrtv_model = None
         self.blip_itrtv_processor = None
         self.sentence_transformer = None
+        self.spacy_nlp = None
         self.device: str | None = None
         self.cargas: list[InfoDeCarga] = []
 
@@ -76,6 +77,7 @@ class ModelosResidentes:
             self.blip_itrtv_model is not None,
             self.blip_itrtv_processor is not None,
             self.sentence_transformer is not None,
+            self.spacy_nlp is not None,
         ])
 
     def carregar(
@@ -85,6 +87,7 @@ class ModelosResidentes:
         blip_itm_model: str,
         sentence_transformer: str,
         device: str = "cuda",
+        spacy_model: str = "en_core_web_sm",
     ) -> None:
         """Carrega os três modelos. Chamado UMA vez, no startup do serviço.
 
@@ -99,6 +102,7 @@ class ModelosResidentes:
             BlipProcessor,
         )
         from sentence_transformers import SentenceTransformer
+        import spacy
 
         self.device = device
         self.cargas = []
@@ -130,6 +134,14 @@ class ModelosResidentes:
         self.sentence_transformer = SentenceTransformer(sentence_transformer).to(device)
         self._registrar("sentence_transformer", sentence_transformer, t0)
 
+        # --- 4. spaCy (etapa 6: extração de keywords) ------------------ #
+        # Sem isto, o propgenerator faria spacy.load() a CADA requisição:
+        # o __init__ do propgen roda dentro de build(), não no startup.
+        t0 = time.perf_counter()
+        log.info("carregando spacy=%s ...", spacy_model)
+        self.spacy_nlp = spacy.load(spacy_model)
+        self._registrar("spacy", spacy_model, t0)
+
         total = sum(c.segundos for c in self.cargas)
         log.info("modelos residentes prontos em %.1fs (device=%s)", total, device)
 
@@ -157,6 +169,10 @@ class ModelosResidentes:
             "blip_itrtv_model": self.blip_itrtv_model,
             "blip_itrtv_processor": self.blip_itrtv_processor,
             "sentence_transformer": self.sentence_transformer,
+            # ★ chave EXTRA (não existe em load_pretrained_models). O
+            # WholePropGenerator a consulta com .get(); o QMPropGenerator a
+            # ignora e carrega o seu próprio. Nenhum componente quebra por ela.
+            "spacy_nlp": self.spacy_nlp,
             "glove_model": None,
         }
 
@@ -167,6 +183,7 @@ class ModelosResidentes:
         self.blip_itrtv_model = None
         self.blip_itrtv_processor = None
         self.sentence_transformer = None
+        self.spacy_nlp = None
         try:
             import torch
 

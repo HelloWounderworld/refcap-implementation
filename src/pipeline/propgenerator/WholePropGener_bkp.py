@@ -86,16 +86,7 @@ class WholePropGenerator(BasePropGen):
         self.txt_sim_model = models["sentence_transformer"]
         self.it_sim_model = models["blip_itrtv_model"]
         self.it_sim_processor = models["blip_itrtv_processor"]
-        # ★ spaCy: reaproveita o já carregado, se o chamador fornecer.
-        #
-        # O QMPropGenerator faz `spacy.load(...)` direto no __init__ — e o
-        # __init__ do propgen roda a CADA chamada de build(). Num serviço de
-        # longa duração isso significa recarregar o spaCy a cada requisição.
-        #
-        # Aqui, se o dicionário de modelos trouxer "spacy_nlp", usamos aquele.
-        # Caso contrário, carregamos como antes — então o CLI continua
-        # funcionando sem nenhuma mudança.
-        self.nlp = models.get("spacy_nlp") or spacy.load("en_core_web_sm")
+        self.nlp = spacy.load("en_core_web_sm")
 
         # Opções sem exigir campos novos no cfg: se você adicionar
         # `whole_rank_by` / `whole_dedup` ao BuildArguments, eles passam a
