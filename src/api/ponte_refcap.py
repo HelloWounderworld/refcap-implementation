@@ -3,6 +3,17 @@
 DUAS ARMADILHAS QUE ESTE MÓDULO RESOLVE
 ---------------------------------------
 
+0) ONDE ESTE DIRETORIO PODE FICAR
+   Os dois arranjos funcionam, sem alterar codigo:
+
+       (A) ao LADO do RefCap          (B) DENTRO do RefCap
+           projeto/                       projeto/
+           |- src/   <- RefCap            `- src/   <- RefCap
+           `- api/                           `- api/
+
+   A raiz e' localizada por MARCADOR (pipeline/propgenerator/base.py), nao por
+   caminho fixo. REFCAP_ROOT, se definida, tem precedencia sobre a descoberta.
+
 1) COMO IMPORTAR O RefCap
    O RefCap usa imports ABSOLUTOS DE TOPO (`from pipeline.denoiser import *`,
    `import utils.basic_utils`). Portanto a RAIZ DO RefCap precisa estar em
@@ -28,35 +39,71 @@ import pathlib
 import sys
 
 # --------------------------------------------------------------------------- #
-# Localização do RefCap
+# Localização do RefCap — funciona nos DOIS arranjos possíveis
 # --------------------------------------------------------------------------- #
-# Por padrão, assume a estrutura:
-#     <projeto>/
-#     ├── src/   <- RefCap
-#     └── api/   <- este serviço
-# Pode ser sobrescrito pela variável de ambiente REFCAP_ROOT (útil no
-# supervisord, em containers, ou se você renomear os diretórios).
+# A raiz é localizada por um MARCADOR (`pipeline/propgenerator/base.py`), não
+# por caminho fixo. Isso torna o serviço agnóstico ao layout:
+#
+#   (A) api/ AO LADO do RefCap          (B) api/ DENTRO do RefCap
+#       projeto/                            projeto/
+#       ├── src/    <- RefCap               └── src/    <- RefCap
+#       └── api/                                └── api/
+#
+# A variável de ambiente REFCAP_ROOT, se definida, tem precedência sobre tudo.
 _AQUI = pathlib.Path(__file__).resolve().parent
-
-RAIZ_REFCAP = pathlib.Path(
-    os.environ.get("REFCAP_ROOT", _AQUI.parent / "src")
-).resolve()
 
 _MARCADOR = pathlib.Path("pipeline") / "propgenerator" / "base.py"
 
+# Nomes usuais da pasta do RefCap quando ela é IRMÃ da api/.
+_NOMES_IRMAOS = ("src", "RefCap", "refcap")
 
-def _validar_raiz() -> None:
-    if not (RAIZ_REFCAP / _MARCADOR).is_file():
-        raise RuntimeError(
-            f"RefCap não encontrado em {RAIZ_REFCAP}.\n"
-            f"Esperava achar '{_MARCADOR}' lá dentro.\n"
-            f"Defina REFCAP_ROOT apontando para a raiz do RefCap."
-        )
+
+def _e_raiz(caminho: pathlib.Path) -> bool:
+    return (caminho / _MARCADOR).is_file()
+
+
+def _descobrir_raiz() -> pathlib.Path:
+    """Descobre a raiz do RefCap, cobrindo os dois arranjos.
+
+    Ordem de tentativa:
+      1. REFCAP_ROOT (se definida) — precedência absoluta
+      2. subindo a partir daqui    — cobre o arranjo (B), api/ DENTRO
+      3. irmãos com nome usual     — cobre o arranjo (A), api/ AO LADO
+    """
+    definida = os.environ.get("REFCAP_ROOT")
+    if definida:
+        raiz = pathlib.Path(definida).resolve()
+        if not _e_raiz(raiz):
+            raise RuntimeError(
+                f"REFCAP_ROOT aponta para {raiz}, mas '{_MARCADOR}' não existe lá."
+            )
+        return raiz
+
+    # (B) api/ dentro do RefCap: subindo, achamos a raiz
+    for candidato in [_AQUI, *_AQUI.parents]:
+        if _e_raiz(candidato):
+            return candidato
+
+    # (A) api/ ao lado do RefCap: procuramos entre os irmãos
+    for nome in _NOMES_IRMAOS:
+        candidato = (_AQUI.parent / nome).resolve()
+        if _e_raiz(candidato):
+            return candidato
+
+    raise RuntimeError(
+        f"RefCap não encontrado a partir de {_AQUI}.\n"
+        f"Procurei por '{_MARCADOR}':\n"
+        f"  - subindo a árvore de diretórios (api/ dentro do RefCap)\n"
+        f"  - nos irmãos {_NOMES_IRMAOS} (api/ ao lado do RefCap)\n"
+        f"Defina REFCAP_ROOT apontando para a raiz do RefCap."
+    )
+
+
+RAIZ_REFCAP = _descobrir_raiz()
 
 
 def preparar_sys_path() -> None:
     """Põe a RAIZ do RefCap no sys.path. Idempotente."""
-    _validar_raiz()
     caminho = str(RAIZ_REFCAP)
     if caminho not in sys.path:
         sys.path.insert(0, caminho)
