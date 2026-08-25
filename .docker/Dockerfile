@@ -86,6 +86,6 @@ RUN apt-get update \
     && source ~/.bashrc \
     && python -m pip install --upgrade pip
 
-EXPOSE 8000
+# EXPOSE 8000
 
-# CMD ["supervisord", "-c", "multi-gpu-default.conf"]
+CMD ["supervisord", "-c", "supervisord.conf"]
