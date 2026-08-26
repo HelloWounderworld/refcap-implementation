@@ -34,7 +34,10 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+import pathlib
+import traceback
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from carregador import ModelosResidentes
@@ -52,6 +55,16 @@ log = logging.getLogger("refcap.api")
 # Configuração do serviço (via ambiente — o supervisord define)
 # --------------------------------------------------------------------------- #
 class ConfigServico:
+    """Configuração via ambiente — o supervisord define no bloco `environment=`.
+
+    ⚠️ REFCAP_*_MODEL devem ser CAMINHOS ABSOLUTOS para os modelos locais.
+    Os defaults abaixo são repo-ids do Hub e só servem se houver rede. Num
+    servidor offline, deixar o default faz o from_pretrained() tentar baixar,
+    falhar, e o processo morrer — o que no supervisord vira loop de reinício.
+
+    Valide os caminhos antes de subir:
+        python validar_modelos_locais.py --caption <dir> --itm <dir> --st <dir>
+    """
     device = os.environ.get("REFCAP_DEVICE", "cuda")
     caption_model = os.environ.get("REFCAP_CAPTION_MODEL", "Salesforce/blip-image-captioning-large")
     blip_itm_model = os.environ.get("REFCAP_BLIP_ITM_MODEL", "Salesforce/blip-itm-base-coco")
@@ -229,6 +242,165 @@ async def consultar_job(job_id: str) -> dict:
 @app.get("/jobs", summary="Lista os jobs recentes")
 async def listar_jobs(limite: int = 50) -> dict:
     return {"jobs": registro.listar(limite)}
+
+# --------------------------------------------------------------------------- #
+# ★ ROTA DE TESTE — construct de ponta a ponta com UM vídeo
+# --------------------------------------------------------------------------- #
+@app.get("/teste/construct", summary="[TESTE] roda o construct num vídeo só")
+def teste_construct(
+    video: str,
+    collection: str = "teste_api",
+    proposal_generator: str = "whole",
+    limpar_cache: bool = True,
+) -> dict:
+    """Executa o pipeline COMPLETO num único vídeo, com os modelos residentes.
+
+    Serve para confirmar, pela interface do FastAPI, que:
+      1. os modelos carregados no startup são de fato reaproveitados;
+      2. o `build()` roda as 7 etapas sem recarregar nada;
+      3. o `WholePropGenerator` produz o ranking.
+
+    PARÂMETROS
+        video     nome do arquivo em `video_root` (ex.: "cena_001.mp4")
+        collection  isola os artefatos deste teste (default: "teste_api")
+        proposal_generator  "whole" (o seu) ou "qm" (o original)
+        limpar_cache  apaga os caches deste `collection` antes de rodar, para
+                      forçar o processamento de verdade
+
+    ⚠️ É SÍNCRONA de propósito: você vê o resultado direto no navegador.
+       Para produção use POST /jobs, que é assíncrono e serializado.
+
+    EXEMPLO
+        GET /teste/construct?video=cena_001.mp4
+    """
+    import json
+    import shutil
+    import time
+
+    if ConfigServico.carregar_no_startup and not modelos.pronto:
+        raise HTTPException(503, "modelos ainda não carregados")
+
+    t_inicio = time.perf_counter()
+    nome_base = video.rsplit(".", 1)[0]
+    passos: list[str] = []
+
+    # --- 1. o arquivo existe? --------------------------------------------- #
+    cfg_base = montar_cfg()
+    caminho_video = os.path.join(cfg_base.video_root, video)
+    if not os.path.isfile(caminho_video):
+        disponiveis = sorted(os.listdir(cfg_base.video_root))[:20] \
+            if os.path.isdir(cfg_base.video_root) else []
+        raise HTTPException(404, {
+            "erro": f"vídeo não encontrado: {caminho_video}",
+            "video_root": cfg_base.video_root,
+            "primeiros_arquivos_la": disponiveis,
+        })
+    passos.append(f"vídeo encontrado: {caminho_video}")
+
+    # --- 2. o annos ------------------------------------------------------- #
+    # ★ SEM ISTO O TESTE "PASSA" SEM PROCESSAR NADA.
+    # `select_videos` (constructpipe/base.py:186-203) só mantém vídeos cujo
+    # `vid_name` esteja no arquivo de anotações — os demais são DESCARTADOS
+    # EM SILÊNCIO, sem erro e sem aviso.
+    dir_anno = os.path.join(cfg_base.anno_dir, collection)
+    os.makedirs(dir_anno, exist_ok=True)
+    caminho_anno = os.path.join(dir_anno, cfg_base.anno_file)
+    with open(caminho_anno, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"vid_name": nome_base}, ensure_ascii=False) + "\n")
+    passos.append(f"annos escrito: {caminho_anno}")
+
+    # --- 3. limpar caches deste collection -------------------------------- #
+    # Os 3 artefatos de meta_dir são chaveados por `collection` e têm lógica de
+    # PULAR vídeo já processado. Sem limpar, uma segunda chamada reaproveitaria
+    # o cache e o BLIP não rodaria — o teste passaria sem testar.
+    if limpar_cache:
+        alvos = [
+            os.path.join(cfg_base.meta_dir, cfg_base.captions_dir,
+                         f"{collection}_{cfg_base.caption_generator}.jsonl"),
+            os.path.join(cfg_base.meta_dir, cfg_base.raw_capframe_scores_dir,
+                         f"{collection}_{cfg_base.caption_generator}.pt"),
+            os.path.join(cfg_base.meta_dir, cfg_base.framefeatures_dir,
+                         f"{collection}.pt"),
+        ]
+        apagados = [a for a in alvos if os.path.isfile(a) and (os.remove(a) or True)]
+        passos.append(f"caches limpos: {len(apagados)}")
+
+    # --- 4. montar o cfg -------------------------------------------------- #
+    cfg = montar_cfg(
+        collection=collection,
+        construct_name=f"teste_{int(time.time())}",
+        caption_generator="blip",
+        proposal_generator=proposal_generator,
+        device=ConfigServico.device,
+        caption_model=ConfigServico.caption_model,
+        blip_itm_model=ConfigServico.blip_itm_model,
+        sentence_transformer=ConfigServico.sentence_transformer,
+    )
+    passos.append(f"cfg montado (collection={collection}, propgen={proposal_generator})")
+
+    # --- 5. ★ o build com os modelos JÁ CARREGADOS ------------------------ #
+    from construct import build
+
+    gpu_antes = ModelosResidentes.estado_da_gpu()
+    log.info("[teste] chamando build() com modelos residentes ...")
+    try:
+        tree_meta = build(cfg, modelos.como_dict())
+    except Exception as exc:
+        log.exception("[teste] build falhou")
+        raise HTTPException(500, {
+            "erro": f"{type(exc).__name__}: {exc}",
+            "passos_ate_falhar": passos,
+            "exp_dir": getattr(cfg, "exp_dir", None),
+        }) from exc
+
+    gpu_depois = ModelosResidentes.estado_da_gpu()
+    passos.append("build() concluído")
+
+    # --- 6. montar a resposta --------------------------------------------- #
+    resultado_video = (tree_meta or {}).get(nome_base)
+    propostas = []
+    if resultado_video:
+        for filho in resultado_video.get("subs", []):
+            propostas.append({
+                "st": filho.get("st"),
+                "ed": filho.get("ed"),
+                "legenda": (filho.get("caps") or [None])[0],
+                "keywords": filho.get("keys", [])[:10],
+            })
+
+    ranking = None
+    caminho_props = os.path.join(cfg.exp_dir, cfg.proposals_file)
+    if os.path.isfile(caminho_props):
+        with open(caminho_props, encoding="utf-8") as f:
+            props = json.load(f)
+        dados = props.get(nome_base, {})
+        if dados.get("proposals"):
+            p0 = dados["proposals"][0]
+            ranking = {
+                "rank_by": p0.get("rank_by"),
+                "n_raw": p0.get("n_raw"),
+                "n_distinct": p0.get("n_distinct"),
+                "ranking": p0.get("ranking"),
+                "warning": p0.get("warning"),
+            }
+
+    return {
+        "ok": True,
+        "video": video,
+        "segundos": round(time.perf_counter() - t_inicio, 2),
+        "passos": passos,
+        "exp_dir": cfg.exp_dir,
+        "proposals_json": caminho_props,
+        "propostas": propostas,
+        "ranking": ranking,
+        "modelos_reaproveitados": {
+            "gpu_alocado_mb_antes": gpu_antes.get("alocado_mb"),
+            "gpu_alocado_mb_depois": gpu_depois.get("alocado_mb"),
+            "nota": ("se os dois valores forem próximos e > 0, os modelos "
+                     "continuam residentes: o build NÃO recarregou nada"),
+        },
+        "tree_meta": tree_meta,
+    }
 
 
 # --------------------------------------------------------------------------- #
