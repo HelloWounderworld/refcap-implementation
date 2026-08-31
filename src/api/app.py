@@ -42,6 +42,8 @@ from pydantic import BaseModel, Field
 
 from carregador import ModelosResidentes
 from jobs import EstadoJob, Job, RegistroDeJobs
+from processamento import (MODEL_NAME_PADRAO, MODEL_VERSION_PADRAO,
+                           PedidoDeJob, processar_pedido, ranquear_keywords)
 from ponte_refcap import RAIZ_REFCAP, montar_cfg, preparar_sys_path
 
 logging.basicConfig(
@@ -118,27 +120,6 @@ app = FastAPI(
 # --------------------------------------------------------------------------- #
 # Contratos
 # --------------------------------------------------------------------------- #
-class PedidoDeJob(BaseModel):
-    """O que o POST recebe.
-
-    ⚠️ ESTE CONTRATO É PROVISÓRIO. Você ainda vai definir o formato real da
-    requisição. Os campos abaixo são o mínimo para o esqueleto funcionar;
-    acrescente o que precisar sem mexer no resto do serviço.
-    """
-    videos: list[str] = Field(
-        default_factory=list,
-        description="Nomes dos arquivos de vídeo a processar.",
-    )
-    callback_url: str | None = Field(
-        default=None,
-        description="Se informado, o serviço faz POST aqui quando o job terminar.",
-    )
-    parametros: dict = Field(
-        default_factory=dict,
-        description="Sobrescritas do cfg do RefCap (ex.: proposal_generator).",
-    )
-
-
 class RespostaDeJob(BaseModel):
     job_id: str
     estado: str
@@ -148,54 +129,41 @@ class RespostaDeJob(BaseModel):
 # --------------------------------------------------------------------------- #
 # ★ O ponto onde o SEU pipeline entra
 # --------------------------------------------------------------------------- #
-def processar_job(job: Job) -> dict:
-    """Executa um job. Roda numa thread, com a fila garantindo um por vez.
 
-    Os modelos JÁ ESTÃO CARREGADOS aqui — `modelos.como_dict()` devolve o
-    dicionário no formato que o `build()` do RefCap espera.
+def _keys_da_cena(props: dict, no_do_tree: dict | None, nome_base: str) -> list:
+    """Extrai as palavras-chave, com o proposals.json como fonte primária.
+
+    O `build_tree_meta` (constructpipe/base.py:178-179) propaga `keys` da
+    proposta para o nó filho, então as duas fontes têm o mesmo conteúdo. Ler do
+    proposals.json é mais direto; o tree_meta fica como alternativa.
     """
-    pedido = job.entrada
+    prop = ((props or {}).get(nome_base, {}).get("proposals") or [{}])[0]
+    if prop.get("keys"):
+        return prop["keys"]
+    for filho in (no_do_tree or {}).get("subs", []):
+        if filho.get("keys"):
+            return filho["keys"]
+    return []
 
-    # ################################################################### #
-    # ### AQUI ENTRA O SEU PIPELINE                                     ###
-    # ###                                                               ###
-    # ### 1. Tratar o que veio na requisição                            ###
-    # ###    (validar vídeos, mover uploads para video_root, etc.)      ###
-    # ###                                                               ###
-    # ### 2. Conferir / atualizar as listas de annos                    ###
-    # ###    O anno_path é  annos/{collection}/{anno_file}              ###
-    # ###    (constructpipe/base.py:44)                                 ###
-    # ###                                                               ###
-    # ### 3. Decidir collection / construct_name                        ###
-    # ###    -> é aqui que entra a decisão de isolamento por job        ###
-    # ###       que ficou para depois                                   ###
-    # ################################################################### #
 
-    # 4. Montar o cfg (caminhos já absolutos, sem ler sys.argv)
-    cfg = montar_cfg(
-        device=ConfigServico.device,
-        caption_model=ConfigServico.caption_model,
-        blip_itm_model=ConfigServico.blip_itm_model,
-        sentence_transformer=ConfigServico.sentence_transformer,
-        caption_generator="blip",
-        construct_name=job.id,          # provisório — ver decisão de isolamento
-        **pedido.get("parametros", {}),
+def processar_job(job: Job) -> dict:
+    """Executa um job completo: pipeline + captioning + resposta.
+
+    O pipeline (escrever annos, agrupar por diretório, decidir collection,
+    tratar cache) e a transformação da saída vivem em `processamento.py` —
+    aqui só ligamos as peças do serviço.
+
+    Os modelos JÁ ESTÃO CARREGADOS: `modelos.como_dict()` devolve o dicionário
+    no formato que o `build()` do RefCap espera, e ele NÃO recarrega nada.
+    """
+    pedido = PedidoDeJob(**job.entrada)
+    return processar_pedido(
+        pedido=pedido,
+        job_id=job.id,
+        montar_cfg=montar_cfg,
+        modelos=modelos,
+        config_servico=ConfigServico,
     )
-
-    # 5. Chamar o núcleo do RefCap com os modelos JÁ CARREGADOS
-    #    `build` é a função extraída de construct.py:main() — o CLI continua
-    #    funcionando igual, e aqui pulamos o load_pretrained_models.
-    from construct import build  # noqa: PLC0415 — após preparar_sys_path()
-
-    tree_meta = build(cfg, modelos.como_dict())
-
-    return {
-        "construct_name": cfg.construct_name,
-        "collection": cfg.collection,
-        "exp_dir": cfg.exp_dir,
-        "videos_no_tree": list(tree_meta.keys()) if tree_meta else [],
-        "tree_meta": tree_meta,
-    }
 
 
 # --------------------------------------------------------------------------- #
@@ -391,8 +359,8 @@ def teste_construct(
     caminho_props = os.path.join(exp_dir, cfg.proposals_file) if exp_dir else None
     if os.path.isfile(caminho_props):
         with open(caminho_props, encoding="utf-8") as f:
-            props = json.load(f)
-        dados = props.get(nome_base, {})
+            props_bruto = json.load(f)
+        dados = props_bruto.get(nome_base, {})
         if dados.get("proposals"):
             p0 = dados["proposals"][0]
             ranking = {
@@ -403,7 +371,32 @@ def teste_construct(
                 "warning": p0.get("warning"),
             }
 
+    # ★ a resposta no FORMATO ACORDADO (o mesmo do POST /jobs)
+    # `scene_id` aqui é o nome-base do arquivo, já que a rota de teste não
+    # recebe um scene_id próprio.
+    p0 = (ranking or {})
+    legenda_escolhida = (propostas[0]["legenda"] if propostas else None)
+    resposta_cena = {
+        "scene_id": nome_base,
+        "scene_caption_en": legenda_escolhida,
+        # as keys vêm do proposals.json (a fonte), com o tree_meta como
+        # alternativa — o build_tree_meta as propaga em constructpipe:178-179
+        "keywords_en": [
+            k.model_dump() for k in ranquear_keywords(
+                _keys_da_cena(props_bruto, resultado_video, nome_base),
+                legenda_escolhida or "",
+                modelos.sentence_transformer,
+            )
+        ],
+        "model_name": MODEL_NAME_PADRAO,
+        "model_version": MODEL_VERSION_PADRAO,
+        "status": "success" if legenda_escolhida else "error",
+    }
+
     return {
+        # ★ O CONTRATO DE SAÍDA no topo, idêntico ao do POST /jobs e ao de cada
+        # item da rota de lote. Assim as três produzem o mesmo formato.
+        **resposta_cena,
         "ok": True,
         "video": video,
         "segundos": round(time.perf_counter() - t_inicio, 2),
@@ -606,17 +599,39 @@ def teste_construct_lote(
             props = json.load(f)
 
     por_video = []
+    itens_resposta = []          # ★ o contrato acordado, um por cena
     for nb in nomes_base:
         no = tree_meta.get(nb)
         dados = props.get(nb, {})
         p0 = (dados.get("proposals") or [{}])[0]
+        legenda = p0.get("cap")
+
+        # --- o formato acordado, idêntico ao do POST /jobs --- #
+        item = {
+            "scene_id": nb,
+            "scene_caption_en": legenda,
+            "keywords_en": [
+                k.model_dump() for k in ranquear_keywords(
+                    _keys_da_cena(props, no, nb), legenda or "",
+                    modelos.sentence_transformer)
+            ],
+            "model_name": MODEL_NAME_PADRAO,
+            "model_version": MODEL_VERSION_PADRAO,
+            "status": "success" if legenda else "error",
+        }
+        if not legenda:
+            item["erro"] = ("o pipeline não produziu legenda; verifique se o "
+                            "vídeo foi decodificado (duração < 1s = zero frames)")
+        itens_resposta.append(item)
+
+        # --- e o diagnóstico do teste, que a rota de produção não traz --- #
         por_video.append({
             "video": nb,
             "processado": no is not None,
             "estava_em_cache": nb in em_cache,
             "duracao": (no or {}).get("duration"),
-            "legenda": p0.get("cap"),
-            "n_raw": p0.get("n_distinct") and p0.get("n_raw"),
+            "legenda": legenda,
+            "n_raw": p0.get("n_raw"),
             "n_distinct": p0.get("n_distinct"),
             "rank_by": p0.get("rank_by"),
             "warning": p0.get("warning"),
@@ -627,6 +642,8 @@ def teste_construct_lote(
 
     return {
         "ok": True,
+        # ★ o contrato de saída: uma entrada por cena, igual à do POST /jobs
+        "items": itens_resposta,
         "diretorio": diretorio,
         "segundos": round(time.perf_counter() - t_inicio, 2),
         "resumo": {
