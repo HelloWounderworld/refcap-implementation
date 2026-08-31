@@ -219,8 +219,16 @@ async def criar_job(pedido: PedidoDeJob, tarefas: BackgroundTasks) -> RespostaDe
     Se `callback_url` for informado, o serviço faz POST lá ao terminar — mas o
     GET /jobs/{id} continua disponível para reconsulta.
     """
-    if ConfigServico.carregar_no_startup and not modelos.pronto:
-        raise HTTPException(503, "modelos ainda não carregados")
+    # A guarda NÃO pode depender de `carregar_no_startup`: se o serviço subiu
+    # com REFCAP_CARREGAR_MODELOS=0, os modelos não existem e o build() não tem
+    # como rodar. Sem esta checagem, o erro apareceria só lá dentro, como 500.
+    if not modelos.pronto:
+        raise HTTPException(503, {
+            "erro": "modelos não carregados",
+            "carregar_no_startup": ConfigServico.carregar_no_startup,
+            "dica": ("suba o serviço sem REFCAP_CARREGAR_MODELOS=0 para carregar "
+                     "os modelos no startup"),
+        })
 
     job = registro.criar(entrada=pedido.model_dump(), callback_url=pedido.callback_url)
     tarefas.add_task(registro.executar, job, processar_job)
@@ -277,8 +285,16 @@ def teste_construct(
     import shutil
     import time
 
-    if ConfigServico.carregar_no_startup and not modelos.pronto:
-        raise HTTPException(503, "modelos ainda não carregados")
+    # A guarda NÃO pode depender de `carregar_no_startup`: se o serviço subiu
+    # com REFCAP_CARREGAR_MODELOS=0, os modelos não existem e o build() não tem
+    # como rodar. Sem esta checagem, o erro apareceria só lá dentro, como 500.
+    if not modelos.pronto:
+        raise HTTPException(503, {
+            "erro": "modelos não carregados",
+            "carregar_no_startup": ConfigServico.carregar_no_startup,
+            "dica": ("suba o serviço sem REFCAP_CARREGAR_MODELOS=0 para carregar "
+                     "os modelos no startup"),
+        })
 
     t_inicio = time.perf_counter()
     nome_base = video.rsplit(".", 1)[0]
@@ -369,7 +385,10 @@ def teste_construct(
             })
 
     ranking = None
-    caminho_props = os.path.join(cfg.exp_dir, cfg.proposals_file)
+    # `exp_dir` é injetado pelo build() (construct.py); se por algum motivo
+    # não estiver definido, degradamos em vez de estourar com AttributeError.
+    exp_dir = getattr(cfg, "exp_dir", None)
+    caminho_props = os.path.join(exp_dir, cfg.proposals_file) if exp_dir else None
     if os.path.isfile(caminho_props):
         with open(caminho_props, encoding="utf-8") as f:
             props = json.load(f)
@@ -389,7 +408,7 @@ def teste_construct(
         "video": video,
         "segundos": round(time.perf_counter() - t_inicio, 2),
         "passos": passos,
-        "exp_dir": cfg.exp_dir,
+        "exp_dir": exp_dir,
         "proposals_json": caminho_props,
         "propostas": propostas,
         "ranking": ranking,
@@ -400,6 +419,240 @@ def teste_construct(
                      "continuam residentes: o build NÃO recarregou nada"),
         },
         "tree_meta": tree_meta,
+    }
+
+# --------------------------------------------------------------------------- #
+# ★ ROTA DE TESTE EM LOTE — um diretório inteiro de .mp4
+# --------------------------------------------------------------------------- #
+@app.get("/teste/construct-lote", summary="[TESTE] roda o construct num DIRETÓRIO de vídeos")
+def teste_construct_lote(
+    diretorio: str,
+    collection: str = "teste_lote",
+    proposal_generator: str = "whole",
+    limpar_cache: bool = False,
+    limite: int = 0,
+    extensoes: str = ".mp4",
+) -> dict:
+    """Processa TODOS os vídeos de um diretório numa única execução do build().
+
+    DIFERENÇA PARA `/teste/construct`
+        Aquela rota processa UM vídeo — não por limitação do RefCap, mas porque
+        escreve uma única linha no arquivo de anotações. O pipeline sempre foi
+        nativo de lote: `constructpipe/base.py:43` faz `os.listdir(video_root)`
+        e as 7 etapas recebem a lista inteira.
+
+        Esta rota escreve TODAS as entradas no annos, e o build() roda uma vez
+        sobre o conjunto — que é exatamente o comportamento do
+        `bash scripts/construct.sh`.
+
+    ★ O CACHE (a diferença de default que importa)
+        `limpar_cache=False` por padrão, ao contrário da rota de um vídeo.
+        Num lote, limpar seria destrutivo: você perderia o trabalho já feito
+        de todos os vídeos daquele `collection`.
+
+        Com o cache preservado, os vídeos já processados são PULADOS pelo
+        próprio RefCap:
+            BlipCapGener.py:18        já legendado  -> pula
+            constructpipe:105         já pontuado   -> pula
+            constructpipe:133         já extraído   -> pula
+        A resposta informa quantos estavam em cache antes de rodar.
+
+    PARÂMETROS
+        diretorio   caminho da pasta com os vídeos (vira o video_root desta
+                    execução)
+        collection  isola os artefatos e o cache deste lote
+        proposal_generator  "whole" (o seu) ou "qm" (o original)
+        limpar_cache  se True, apaga os caches deste `collection` antes de
+                      rodar, forçando reprocessamento de tudo
+        limite      processa no máximo N vídeos (0 = todos); útil para um teste
+                    rápido antes de rodar o conjunto inteiro
+        extensoes   filtro, separado por vírgula (ex.: ".mp4,.avi")
+
+    ⚠️ É SÍNCRONA. Um diretório grande pode estourar o timeout do HTTP.
+       Use `limite` para testar antes, e o POST /jobs para produção.
+
+    EXEMPLOS
+        GET /teste/construct-lote?diretorio=/dados/minhas_cenas
+        GET /teste/construct-lote?diretorio=/dados/cenas&limite=5
+        GET /teste/construct-lote?diretorio=/dados/cenas&limpar_cache=true
+    """
+    import json
+    import time
+
+    if ConfigServico.carregar_no_startup and not modelos.pronto:
+        raise HTTPException(503, "modelos ainda não carregados")
+
+    t_inicio = time.perf_counter()
+    passos: list[str] = []
+
+    # --- 1. o diretório existe e tem vídeos? ------------------------------ #
+    if not os.path.isdir(diretorio):
+        raise HTTPException(404, {"erro": f"diretório não encontrado: {diretorio}"})
+
+    sufixos = tuple(e.strip().lower() for e in extensoes.split(",") if e.strip())
+    arquivos = sorted(
+        f for f in os.listdir(diretorio)
+        if os.path.isfile(os.path.join(diretorio, f)) and f.lower().endswith(sufixos)
+    )
+    if not arquivos:
+        raise HTTPException(404, {
+            "erro": f"nenhum arquivo {sufixos} em {diretorio}",
+            "primeiros_arquivos_la": sorted(os.listdir(diretorio))[:20],
+        })
+
+    total_encontrado = len(arquivos)
+    if limite > 0:
+        arquivos = arquivos[:limite]
+    nomes_base = [a.rsplit(".", 1)[0] for a in arquivos]
+    passos.append(f"{total_encontrado} arquivo(s) encontrado(s); {len(arquivos)} selecionado(s)")
+
+    # --- 2. montar o cfg -------------------------------------------------- #
+    # O `diretorio` vira o video_root DESTA execução: o build() faz
+    # os.listdir(cfg.video_root), então é dele que a lista sai.
+    cfg = montar_cfg(
+        video_root=diretorio,
+        collection=collection,
+        construct_name=f"lote_{int(time.time())}",
+        caption_generator="blip",
+        proposal_generator=proposal_generator,
+        device=ConfigServico.device,
+        caption_model=ConfigServico.caption_model,
+        blip_itm_model=ConfigServico.blip_itm_model,
+        sentence_transformer=ConfigServico.sentence_transformer,
+    )
+    passos.append(f"cfg montado (collection={collection}, propgen={proposal_generator})")
+
+    # --- 3. ★ o que JÁ está em cache? ------------------------------------- #
+    # Lido ANTES de rodar, para a resposta poder dizer o que era novo.
+    caminho_cache = os.path.join(
+        cfg.meta_dir, cfg.captions_dir, f"{collection}_{cfg.caption_generator}.jsonl"
+    )
+    ja_em_cache: set[str] = set()
+    if os.path.isfile(caminho_cache):
+        with open(caminho_cache, encoding="utf-8") as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha:
+                    continue
+                try:
+                    ja_em_cache.add(json.loads(linha)["vid_name"])
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+    em_cache = [n for n in nomes_base if n in ja_em_cache]
+    novos = [n for n in nomes_base if n not in ja_em_cache]
+    passos.append(f"cache: {len(em_cache)} já processado(s), {len(novos)} novo(s)")
+
+    # --- 4. limpar o cache (só se pedido) --------------------------------- #
+    apagados: list[str] = []
+    if limpar_cache:
+        alvos = [
+            caminho_cache,
+            os.path.join(cfg.meta_dir, cfg.raw_capframe_scores_dir,
+                         f"{collection}_{cfg.caption_generator}.pt"),
+            os.path.join(cfg.meta_dir, cfg.framefeatures_dir, f"{collection}.pt"),
+        ]
+        for a in alvos:
+            if os.path.isfile(a):
+                os.remove(a)
+                apagados.append(a)
+        em_cache, novos = [], nomes_base
+        passos.append(f"cache LIMPO: {len(apagados)} arquivo(s) apagado(s)")
+    else:
+        passos.append("cache PRESERVADO (default) — vídeos já processados serão pulados")
+
+    # --- 5. escrever o annos com TODOS os vídeos -------------------------- #
+    # ★ É AQUI que a rota de um vídeo difere desta: lá escrevo UMA linha.
+    # `select_videos` (constructpipe/base.py:186-203) só mantém o que estiver
+    # neste arquivo — os demais são descartados EM SILÊNCIO.
+    dir_anno = os.path.join(cfg.anno_dir, collection)
+    os.makedirs(dir_anno, exist_ok=True)
+    caminho_anno = os.path.join(dir_anno, cfg.anno_file)
+    with open(caminho_anno, "w", encoding="utf-8") as f:
+        for nb in nomes_base:
+            f.write(json.dumps({"vid_name": nb}, ensure_ascii=False) + "\n")
+    passos.append(f"annos escrito com {len(nomes_base)} entrada(s): {caminho_anno}")
+
+    # --- 6. ★ o build com os modelos JÁ CARREGADOS ------------------------ #
+    from construct import build
+
+    gpu_antes = ModelosResidentes.estado_da_gpu()
+    log.info("[lote] build() com %d vídeo(s), modelos residentes ...", len(nomes_base))
+    try:
+        tree_meta = build(cfg, modelos.como_dict())
+    except Exception as exc:
+        log.exception("[lote] build falhou")
+        raise HTTPException(500, {
+            "erro": f"{type(exc).__name__}: {exc}",
+            "passos_ate_falhar": passos,
+            "exp_dir": getattr(cfg, "exp_dir", None),
+        }) from exc
+
+    gpu_depois = ModelosResidentes.estado_da_gpu()
+    passos.append("build() concluído")
+
+    # --- 7. montar a resposta --------------------------------------------- #
+    tree_meta = tree_meta or {}
+
+    # o ranking de cada vídeo vem do proposals.json
+    # `exp_dir` é injetado pelo build() (construct.py). Usamos getattr porque,
+    # se o build falhar muito cedo, o atributo pode não existir — e a resposta
+    # de diagnóstico não deve quebrar por causa disso.
+    exp_dir = getattr(cfg, "exp_dir", None)
+    caminho_props = os.path.join(exp_dir, cfg.proposals_file) if exp_dir else None
+    props = {}
+    if caminho_props and os.path.isfile(caminho_props):
+        with open(caminho_props, encoding="utf-8") as f:
+            props = json.load(f)
+
+    por_video = []
+    for nb in nomes_base:
+        no = tree_meta.get(nb)
+        dados = props.get(nb, {})
+        p0 = (dados.get("proposals") or [{}])[0]
+        por_video.append({
+            "video": nb,
+            "processado": no is not None,
+            "estava_em_cache": nb in em_cache,
+            "duracao": (no or {}).get("duration"),
+            "legenda": p0.get("cap"),
+            "n_raw": p0.get("n_distinct") and p0.get("n_raw"),
+            "n_distinct": p0.get("n_distinct"),
+            "rank_by": p0.get("rank_by"),
+            "warning": p0.get("warning"),
+        })
+
+    processados = sum(1 for v in por_video if v["processado"])
+    ausentes = [v["video"] for v in por_video if not v["processado"]]
+
+    return {
+        "ok": True,
+        "diretorio": diretorio,
+        "segundos": round(time.perf_counter() - t_inicio, 2),
+        "resumo": {
+            "encontrados_no_diretorio": total_encontrado,
+            "selecionados": len(nomes_base),
+            "no_tree_meta": processados,
+            "estavam_em_cache": len(em_cache),
+            "eram_novos": len(novos),
+            "ausentes_no_resultado": ausentes,
+        },
+        "cache": {
+            "arquivo": caminho_cache,
+            "limpo": limpar_cache,
+            "apagados": apagados,
+        },
+        "passos": passos,
+        "exp_dir": exp_dir,
+        "proposals_json": caminho_props,
+        "tree_json": os.path.join(exp_dir, cfg.tree_file) if exp_dir else None,
+        "por_video": por_video,
+        "modelos_reaproveitados": {
+            "gpu_alocado_mb_antes": gpu_antes.get("alocado_mb"),
+            "gpu_alocado_mb_depois": gpu_depois.get("alocado_mb"),
+            "nota": ("valores próximos e > 0 = os modelos continuam residentes; "
+                     "o build NÃO recarregou nada, mesmo com o lote inteiro"),
+        },
     }
 
 
