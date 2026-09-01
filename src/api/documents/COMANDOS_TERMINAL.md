@@ -19,7 +19,7 @@
 > curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '{...}'
 > ```
 > ```
-> {"job_id":"49956a0e6d5b4fa7b4167bf9325a7a3b","estado":"na_fila","consultar_em":"/jobs/49956a0e..."}
+> {"job_id":"...","estado":"concluido","resumo":{"total":1,"ok":1,"erros":0},"items":[{...}]}
 > ```
 > Funciona igual — só vem tudo numa linha.
 >
@@ -60,14 +60,31 @@ curl -s -X POST http://localhost:8000/jobs \
   }' | python3 -m json.tool
 ```
 
-**Resposta imediata (202):**
+**★ A resposta traz o RESULTADO COMPLETO** (a chamada aguarda o processamento):
 ```json
 {
-    "job_id": "9e8adacb756b4ab0ba570279e2d34478",
-    "estado": "na_fila",
-    "consultar_em": "/jobs/9e8adacb756b4ab0ba570279e2d34478"
+  "job_id": "9e8adacb...",
+  "estado": "concluido",
+  "resumo": {"total": 3, "ok": 3, "erros": 0},
+  "items": [
+    {
+      "scene_id": "cena_01",
+      "scene_caption_en": "a woman preparing food in a kitchen",
+      "keywords_en": [
+        {"token": "woman",   "weight": 0.6},
+        {"token": "kitchen", "weight": 0.6},
+        {"token": "food",    "weight": 0.6}
+      ],
+      "model_name": "refcap",
+      "model_version": "v1",
+      "status": "success"
+    }
+  ],
+  "segundos": 12.4
 }
 ```
+
+**[V] Verificado com `curl` real:** `HTTP 200`, `estado: concluido`, `{"total": 3, "ok": 3, "erros": 0}`.
 
 ---
 
@@ -103,14 +120,17 @@ curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '
 curl http://localhost:8000/jobs/COLE_O_JOB_ID
 ```
 
-**A resposta vem assim** (uma linha, JSON compacto):
+**A resposta vem assim** (uma linha, JSON compacto, com o resultado inteiro):
 ```
-{"job_id":"49956a0e6d5b4fa7b4167bf9325a7a3b","estado":"na_fila","consultar_em":"/jobs/49956a0e..."}
+{"job_id":"...","estado":"concluido","resumo":{"total":2,"ok":2,"erros":0},"items":[{"scene_id":"cena_01",...}]}
 ```
 
 ---
 
-## 3. Consultar o resultado
+## 3. Consultar um job já feito (opcional)
+
+**Não é mais necessário para obter o resultado** — o POST já o devolve. Serve
+para RECONSULTAR um job antigo, ou para acompanhar um job assíncrono.
 
 ```bash
 curl -s http://localhost:8000/jobs/COLE_O_JOB_ID_AQUI | python3 -m json.tool
@@ -142,36 +162,39 @@ curl -s http://localhost:8000/jobs/COLE_O_JOB_ID_AQUI | python3 -m json.tool
 
 ---
 
-## 4. POST + consulta automática, numa linha só
+## 4. ★ Modo ASSÍNCRONO — quando o lote é grande
 
-Sem copiar o `job_id` à mão:
+O modo padrão segura a conexão até terminar. Para lotes longos (onde um proxy
+poderia derrubar a conexão), acrescente `"assincrono": true`:
 
 ```bash
-JID=$(curl -s -X POST http://localhost:8000/jobs \
-  -H 'Content-Type: application/json' \
-  -d '{"scene_id":"cena_solo","video_id":"vidUnico","program_id":"prog2","scene_video_path":"/caminho/prog2/vidUnico"}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
-
-echo "job: $JID"
-
-# aguarda terminar e mostra o resultado
-until curl -s "http://localhost:8000/jobs/$JID" \
-      | python3 -c "import sys,json; e=json.load(sys.stdin)['estado']; print(e); exit(0 if e in ('concluido','falhou') else 1)"; do
-  sleep 3
-done
-
-curl -s "http://localhost:8000/jobs/$JID" | python3 -m json.tool
+curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' \
+  -d '{"scene_id":"cena_solo","program_id":"prog2","scene_video_path":"/caminho/prog2/vidUnico","assincrono":true}'
 ```
+
+**Resposta imediata (202):**
+```json
+{"job_id":"02bb2239...","estado":"na_fila","consultar_em":"/jobs/02bb2239..."}
+```
+
+Depois consulte com o `GET /jobs/{id}` da seção 3, ou informe `callback_url`
+para ser avisado quando terminar.
+
+**[V] Verificado:** `HTTP 202` no POST, e o `GET` depois trouxe `concluido`.
 
 ---
 
 ## 5. Só as legendas e keywords (sem o resto do JSON)
 
+Direto da resposta do POST:
+
 ```bash
-curl -s "http://localhost:8000/jobs/$JID" | python3 -c "
+curl -s -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' \
+  -d '{"scene_id":"cena_01","program_id":"prog1","scene_video_path":"/caminho/cena_01.mp4"}' \
+  | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-for it in d['resultado']['items']:
+for it in d['items']:
     kw = ', '.join(f\"{k['token']}({k['weight']})\" for k in it['keywords_en'][:5])
     print(f\"{it['scene_id']:<14} {it['status']:<8} {it.get('scene_caption_en') or it.get('erro','')}\")
     print(f\"{'':<14} keywords: {kw}\")

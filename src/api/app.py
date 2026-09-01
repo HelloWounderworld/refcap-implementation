@@ -38,6 +38,7 @@ import pathlib
 import traceback
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from carregador import ModelosResidentes
@@ -120,7 +121,8 @@ app = FastAPI(
 # --------------------------------------------------------------------------- #
 # Contratos
 # --------------------------------------------------------------------------- #
-class RespostaDeJob(BaseModel):
+class RespostaAssincrona(BaseModel):
+    """Devolvida apenas quando o pedido traz `"assincrono": true`."""
     job_id: str
     estado: str
     consultar_em: str
@@ -179,13 +181,27 @@ async def health() -> dict:
     }
 
 
-@app.post("/jobs", response_model=RespostaDeJob, status_code=202,
-          summary="Cria um job de processamento")
-async def criar_job(pedido: PedidoDeJob, tarefas: BackgroundTasks) -> RespostaDeJob:
-    """Devolve 202 + job_id imediatamente; o processamento roda em segundo plano.
+@app.post("/jobs", summary="Processa um job e devolve o resultado")
+async def criar_job(pedido: PedidoDeJob, tarefas: BackgroundTasks):
+    """Por padrão AGUARDA o processamento e devolve o resultado completo.
 
-    Se `callback_url` for informado, o serviço faz POST lá ao terminar — mas o
-    GET /jobs/{id} continua disponível para reconsulta.
+    ★ MODO PADRÃO (síncrono) — `"assincrono"` ausente ou `false`
+        A conexão fica aberta até o job terminar, e a resposta traz:
+
+            {"job_id": ..., "estado": "concluido",
+             "resumo": {"total": N, "ok": N, "erros": 0},
+             "items": [ {scene_id, scene_caption_en, keywords_en, ...} ],
+             "grupos": [...], "segundos": 12.3}
+
+        ⚠️ A fila continua serializando: se outro job estiver rodando, este
+        espera a vez. Com lotes grandes, a conexão pode cair por timeout de
+        proxy — nesse caso use o modo assíncrono.
+
+    MODO ASSÍNCRONO — `"assincrono": true`
+        Devolve 202 + `job_id` na hora e processa em segundo plano. Consulte
+        por `GET /jobs/{id}`, ou informe `callback_url` para ser avisado.
+
+    Em AMBOS os modos o job fica registrado e pode ser reconsultado depois.
     """
     # A guarda NÃO pode depender de `carregar_no_startup`: se o serviço subiu
     # com REFCAP_CARREGAR_MODELOS=0, os modelos não existem e o build() não tem
@@ -199,11 +215,38 @@ async def criar_job(pedido: PedidoDeJob, tarefas: BackgroundTasks) -> RespostaDe
         })
 
     job = registro.criar(entrada=pedido.model_dump(), callback_url=pedido.callback_url)
-    tarefas.add_task(registro.executar, job, processar_job)
-    return RespostaDeJob(
-        job_id=job.id,
-        estado=job.estado.value,
-        consultar_em=f"/jobs/{job.id}",
+
+    # --- modo assíncrono: devolve na hora ------------------------------- #
+    if pedido.assincrono:
+        tarefas.add_task(registro.executar, job, processar_job)
+        return JSONResponse(
+            status_code=202,
+            content=RespostaAssincrona(
+                job_id=job.id,
+                estado=job.estado.value,
+                consultar_em=f"/jobs/{job.id}",
+            ).model_dump(),
+        )
+
+    # --- modo padrão: AGUARDA e devolve o resultado --------------------- #
+    # `executar` já roda a tarefa numa thread (asyncio.to_thread) e sob a trava
+    # da fila — então aguardar aqui NÃO bloqueia o loop de eventos: o /health e
+    # o GET /jobs continuam respondendo durante o processamento.
+    await registro.executar(job, processar_job)
+
+    resultado = job.resultado or {}
+    corpo = {
+        "job_id": job.id,
+        "estado": job.estado.value,
+        **(resultado if isinstance(resultado, dict) else {"resultado": resultado}),
+    }
+    if job.erro:
+        corpo["erro"] = job.erro
+    # 200 quando concluiu; 500 quando o job falhou por inteiro (falhas de cena
+    # individual vêm como status:"error" dentro de items, com HTTP 200).
+    return JSONResponse(
+        status_code=200 if job.estado == EstadoJob.CONCLUIDO else 500,
+        content=corpo,
     )
 
 

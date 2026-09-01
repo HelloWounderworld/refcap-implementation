@@ -9,8 +9,10 @@
 #     bash testar_jobs.sh unico     # um vídeo só
 #     bash testar_jobs.sh           # roda os dois
 #
-# [V] Ambos os formatos foram testados contra a API e retornaram 202 +
-#     resultado no contrato acordado.
+# ★ O POST agora AGUARDA e devolve o resultado completo (HTTP 200).
+#   Para o modo antigo (202 + job_id), acrescente "assincrono": true ao corpo.
+#
+# [V] Ambos os formatos testados contra a API real.
 # =============================================================================
 
 API="${API:-http://localhost:8000}"
@@ -81,9 +83,8 @@ requisicao_lote() {
 }
 EOF
 )
+    # o POST já devolve o resultado completo — nada a aguardar
     echo "$resp" | jq_ou_python
-    esperar_job "$(echo "$resp" | python3 -c \
-        "import sys,json; print(json.load(sys.stdin)['job_id'])")"
 }
 
 
@@ -110,9 +111,8 @@ requisicao_unico() {
 }
 EOF
 )
+    # o POST já devolve o resultado completo — nada a aguardar
     echo "$resp" | jq_ou_python
-    esperar_job "$(echo "$resp" | python3 -c \
-        "import sys,json; print(json.load(sys.stdin)['job_id'])")"
 }
 
 

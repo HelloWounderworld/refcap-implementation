@@ -85,6 +85,12 @@ class PedidoDeJob(BaseModel):
 
     # --- controles opcionais ---
     callback_url: str | None = None
+    assincrono: bool = Field(
+        default=False,
+        description="Se True, devolve 202 + job_id na hora e processa em segundo "
+                    "plano (consulte por GET /jobs/{id}). O default False AGUARDA "
+                    "o processamento e devolve o resultado completo.",
+    )
     proposal_generator: str = "whole"
     limpar_cache: bool = False
     collection: str | None = Field(
