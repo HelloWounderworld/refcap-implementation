@@ -7,7 +7,9 @@
 >
 > **A ordem não é arbitrária.** Vai do mais barato e mais provável de falhar para o mais caro. Os passos 1–4 não envolvem GPU nem modelos — se algo estiver errado ali, você descobre em segundos em vez de depois de minutos de carregamento.
 >
-> **Antes de tudo:** a Parte 0 traz a auditoria de conflitos que rodei nos scripts novos.
+> **Antes de tudo:** a Parte 0 traz a auditoria de conflitos.
+>
+> **★ ATUALIZADO.** O `POST /jobs` deixou de ser um esqueleto — hoje processa de ponta a ponta, nos dois formatos acordados. Os passos afetados (1, 9) e a Parte 4 trazem a marca **★ ATUALIZADO**.
 
 ---
 
@@ -17,8 +19,8 @@ Você pediu para conferir se os scripts novos quebram algo. **[V] Onze verifica�
 
 | # | verificação | resultado |
 |---|---|---|
-| 1 | os 7 arquivos `.py` compilam | ✓ todos |
-| 2 | grafo de imports | `app.py` → (carregador, jobs, ponte_refcap); os três diagnósticos **não importam nada do app** |
+| 1 | os **8** arquivos `.py` compilam | ✓ todos |
+| 2 | grafo de imports | `app.py` → (carregador, jobs, ponte_refcap, **processamento**); os três diagnósticos **não importam nada do app** |
 | 3 | colisão com módulos do RefCap | nenhuma |
 | 4 | colisão com stdlib / pacotes instalados | nenhuma |
 | 5 | serviço sobe após todas as mudanças | `/health` 200 |
@@ -55,6 +57,7 @@ E o pytest não os coleta porque nenhum se chama `test_*.py`.
         ├── carregador.py
         ├── jobs.py
         ├── ponte_refcap.py
+        ├── processamento.py              ← ★ NOVO: contratos + pipeline
         ├── supervisord.conf
         ├── diagnostico_gpu.py
         ├── diagnostico_supervisord.py
@@ -82,6 +85,7 @@ grep -n "setdefault" construct.py                   # linhas 2-3
 grep -n "n_amostras" dataset/viddataset.py          # o max(1, ...)
 grep -n '"whole"' config/cfg.py                     # nos choices
 grep -n "WholePropGener" pipeline/propgenerator/__init__.py
+grep -n "spacy_nlp" pipeline/propgenerator/WholePropGener.py   # ★ o reuso do spaCy
 ```
 
 **Se algum faltar:** o patch não aplicou. Faça a edição à mão — cada uma está documentada no relatório correspondente.
@@ -263,29 +267,68 @@ curl -s localhost:8000/health | python -m json.tool
 
 ---
 
-## Passo 9 — Um job de ponta a ponta
+## Passo 9 — ★ ATUALIZADO — Um job de ponta a ponta
 
-Com o serviço do Passo 8 rodando:
+Com o serviço do Passo 8 rodando. **Três formas de exercitar**, da mais simples à real:
 
+**(a) Rota de teste, um vídeo — síncrona, resposta imediata:**
 ```bash
-curl -s -X POST localhost:8000/jobs \
-     -H 'Content-Type: application/json' \
-     -d '{"videos": ["um_video_seu.mp4"]}' | python -m json.tool
+curl -s "localhost:8000/teste/construct?video=cena_01.mp4" | python -m json.tool
 ```
 
-**Espere:** `202` com `job_id` e `consultar_em`.
-
+**(b) Rota de teste, um diretório inteiro:**
 ```bash
+curl -s "localhost:8000/teste/construct-lote?diretorio=/dados/cenas&limite=3" | python -m json.tool
+```
+**[J] Use `limite` na primeira vez** — a rota é síncrona e um diretório grande estoura o timeout.
+
+**(c) O caminho de produção — assíncrono, nos formatos acordados:**
+```bash
+# cena única
+curl -s -X POST localhost:8000/jobs -H 'Content-Type: application/json' -d '{
+  "scene_id":"cena_01","video_id":"vidA","program_id":"prog1",
+  "scene_video_path":"/caminho/prog1/vidA/cena_01"
+}'
+
+# lote
+curl -s -X POST localhost:8000/jobs -H 'Content-Type: application/json' -d '{
+  "items":[
+    {"scene_id":"cena_01","video_id":"vidA","program_id":"prog1","scene_video_path":"..."},
+    {"scene_id":"cena_02","video_id":"vidB","program_id":"prog1","scene_video_path":"..."}
+  ]
+}'
+
 curl -s localhost:8000/jobs/<job_id> | python -m json.tool
 ```
 
-**[J] Neste momento o `processar_job` ainda tem o bloco marcado sem preencher**, então o resultado depende do que você implementou ali. Se ainda não implementou, o job vai falhar — e isso é esperado. O que importa aqui é que o **ciclo do job funciona**: 202, estado muda, o erro é capturado sem derrubar o serviço.
+**O que esperar nas três:** o mesmo contrato de saída.
+```json
+{
+  "scene_id": "cena_01",
+  "scene_caption_en": "a woman preparing food in a kitchen",
+  "keywords_en": [{"token":"woman","weight":0.6}, ...],
+  "model_name": "refcap", "model_version": "v1", "status": "success"
+}
+```
+
+**★ A prova do reaproveitamento** está no campo `modelos_reaproveitados` das rotas de teste:
+```json
+{"gpu_alocado_mb_antes": 2847.3, "gpu_alocado_mb_depois": 2847.3}
+```
+Valores **próximos e > 0** = o `build()` usou os modelos que já estavam na GPU.
+
+**Se `status: "error"`:** a mensagem diz a causa. As comuns:
+
+| erro | causa |
+|---|---|
+| `não encontrei a cena '...'` | `scene_video_path` errado — a rota tenta arquivo, arquivo sem extensão, e diretório |
+| `o pipeline não produziu legenda` | vídeo < 1 s (zero frames) ou não entrou no annos |
 
 **Confirme que o serviço sobreviveu:**
 ```bash
-curl -s localhost:8000/health | python -m json.tool
+curl -s localhost:8000/health | python -m json.tool | grep alocado_mb
 ```
-Deve responder 200, com `alocado_mb` **inalterado** — os modelos continuam residentes mesmo após um job falhar.
+`alocado_mb` **inalterado** — os modelos continuam residentes mesmo após uma falha.
 
 ---
 
@@ -391,22 +434,29 @@ supervisorctl tail -f refcap-api stderr
 | 6 | `python diagnostico_gpu.py --carregar --manter` | `delta alocado > 0` |
 | 7 | `REFCAP_CARREGAR_MODELOS=0 python app.py` | `/health` 200 |
 | 8 | `python app.py` (com modelos) | `alocado_mb > 0` |
-| 9 | `curl -X POST .../jobs` | 202 + ciclo do job |
+| 9a | `curl ".../teste/construct?video=X.mp4"` | contrato + `alocado_mb` estável |
+| 9b | `curl ".../teste/construct-lote?diretorio=D&limite=3"` | `{"items":[...]}` |
+| 9c | `curl -X POST .../jobs` (formato acordado) | 202 + `job_id` |
 | 10 | `supervisorctl update` | `RUNNING` |
 | 11 | comparar PID após 60 s | mesmo PID |
 | 12 | `python diagnostico_supervisord.py` | (só se falhar) |
 
 ---
 
-# PARTE 4 — O que este roteiro não cobre
+# PARTE 4 — ★ ATUALIZADO — O que este roteiro não cobre
 
-**[J]**
+**Resolvido desde a versão anterior:**
+- ~~o `processar_job` com o bloco por preencher~~ → implementado
+- ~~a decisão de isolamento~~ → `collection` = pedido > `program_id` > `job_id`
+- ~~o formato da requisição~~ → cena única e lote, ambos aceitos
 
-- **Não testei nada com GPU real.** Não há GPU neste ambiente; validei a lógica dos diagnósticos e o comportamento do serviço sem modelos.
-- **Não processei um vídeo de verdade.** O Passo 9 exercita o ciclo do job, não o captioning.
-- **O `processar_job` ainda tem o bloco marcado por preencher** — o resultado do Passo 9 depende do que você implementar ali.
-- **Não cobre a decisão de isolamento** (`collection` por job), deliberadamente adiada.
-- **Não cobre upload de arquivo** — o `PedidoDeJob` recebe nomes, não arquivos.
+**[J] Ainda em aberto:**
+
+- **Não testei com GPU real nesta sessão.** Validei a lógica dos diagnósticos e o serviço sem modelos. *(Você confirmou o carregamento residente no `nvidia-smi`.)*
+- **Não processei um vídeo de verdade.** Os testes usaram um `build()` falso para verificar o **fluxo**: agrupamento por diretório, escrita do annos, detecção de cache, formato de saída.
+- **Não cobre upload de arquivo** — o pedido traz **caminhos**, não os arquivos.
+- **Os pesos das keywords (0.6/0.4) não foram calibrados** — sem dados anotados.
+- **Sem limite de tamanho de lote** nem timeout por job. As rotas de teste são **síncronas**: use `limite` antes de rodar um diretório grande.
 
 ---
 

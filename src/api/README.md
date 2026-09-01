@@ -5,9 +5,9 @@
 
 > **O que é este documento.** A explicação do esqueleto de serviço criado para o RefCap: como ele se encaixa no repositório sem modificá-lo, o que cada um dos cinco arquivos faz — parte por parte — e por que cada decisão foi tomada.
 >
-> **O que o esqueleto entrega hoje.** Supervisord sobe o FastAPI; o FastAPI carrega os três modelos **uma vez**; o serviço fica em estado permanente aceitando POSTs assíncronos com `job_id`, consulta por GET e webhook opcional.
+> **O que o serviço entrega hoje.** Supervisord sobe o FastAPI; o FastAPI carrega os **quatro** modelos residentes (3 na GPU + spaCy) **uma vez**; o serviço aceita POSTs assíncronos com `job_id`, consulta por GET e webhook opcional — e o `POST /jobs` **já processa de ponta a ponta**, nos dois formatos de requisição acordados.
 >
-> **O que falta.** Um bloco claramente marcado dentro de `processar_job`, onde entrará o seu pipeline (tratar a requisição, conferir/atualizar annos, decidir `collection`, chamar `build()`). **Nada do resto muda quando você preenchê-lo** — foi essa a razão de separar assim.
+> **★ ATUALIZADO.** A versão anterior deste relatório descrevia um esqueleto com um bloco por preencher em `processar_job`. Esse bloco **foi implementado** — a lógica vive em `processamento.py`, e o detalhamento está em `RefCap_Relatorio_Contrato_API.md`. As seções afetadas trazem a marca **★ ATUALIZADO**.
 
 ---
 
@@ -52,15 +52,19 @@ uvicorn app:app  ──►  FastAPI
                               ModelosResidentes.liberar()
 ```
 
-## 1.2 Os cinco arquivos e seus papéis
+## 1.2 ★ ATUALIZADO — Os arquivos e seus papéis
 
-| arquivo | responsabilidade única |
-|---|---|
-| `ponte_refcap.py` | fazer o RefCap ser importável e seus caminhos resolverem certo |
-| `carregador.py` | carregar os modelos uma vez e mantê-los residentes |
-| `jobs.py` | fila serializada, estado dos jobs, entrega de webhook |
-| `app.py` | ciclo de vida, rotas HTTP, e o ponto de extensão do seu pipeline |
-| `supervisord.conf` | subir o processo com o ambiente correto |
+| arquivo | linhas | responsabilidade única |
+|---|---|---|
+| `ponte_refcap.py` | 165 | fazer o RefCap importável e seus caminhos resolverem certo |
+| `carregador.py` | 247 | carregar os **4** modelos uma vez e mantê-los residentes |
+| `jobs.py` | 154 | fila serializada, estado dos jobs, entrega de webhook |
+| **`processamento.py`** | **445** | **★ NOVO** — contratos, pipeline e transformação da saída |
+| `app.py` | 698 | ciclo de vida e as 6 rotas HTTP |
+| `supervisord.conf` | 112 | subir o processo com o ambiente correto |
+
+E três scripts de diagnóstico, standalone (não importam nada do serviço):
+`diagnostico_gpu.py`, `diagnostico_supervisord.py`, `validar_modelos_locais.py`.
 
 **[J] A separação não é decorativa.** Cada arquivo resolve um problema distinto e pode ser testado isoladamente. O `jobs.py`, por exemplo, não sabe o que é o RefCap — recebe uma função e a executa. Foi isso que permitiu testar a fila com uma tarefa falsa (Parte 7).
 
@@ -167,7 +171,7 @@ def montar_cfg(**sobrescritas):
 
 ---
 
-# PARTE 3 — `carregador.py` (188 linhas)
+# PARTE 3 — `carregador.py` (247 linhas) ★ ATUALIZADO
 
 **Responsabilidade:** carregar os modelos uma vez e mantê-los vivos pelo resto do processo.
 
@@ -181,25 +185,31 @@ def montar_cfg(**sobrescritas):
 
 **O estado (linhas 60–69).** Cinco referências de modelo, o `device`, e uma lista de `InfoDeCarga` para diagnóstico.
 
-**`carregar()` (linhas 80–133).** Carrega os três, espelhando as linhas do RefCap:
+**`carregar()`.** Carrega **quatro** modelos:
 
 | modelo | espelha | atende as etapas |
 |---|---|---|
 | `cap_gen_model` + processor | **[L]** `model_utils.py:12-13` | 1 (legendagem) |
 | `blip_itrtv_model` + processor | **[L]** `model_utils.py:30-31` | 2, 3, 4, 5, 6 |
-| `sentence_transformer` | **[L]** `model_utils.py:35` | 6 (consenso) |
+| `sentence_transformer` | **[L]** `model_utils.py:35` | 6 (consenso) + pesos das keywords |
+| **`spacy_nlp`** | **★ NOVO** — não existe no RefCap | 6 (extração de keywords) |
+
+**[J] Por que o spaCy entrou:** **[L]** `QMPropGener.py:25` e o `WholePropGener` fazem `spacy.load()` no `__init__` — e o `__init__` do propgenerator roda **dentro** do `build()`. Num serviço, isso significa recarregar o spaCy **a cada requisição**. Carregá-lo no startup elimina esse desperdício.
 
 **[J] Os imports de `transformers` e `sentence_transformers` ficam dentro do método**, não no topo do arquivo. Dois motivos: o módulo pode ser importado para inspeção sem puxar o torch, e deixa explícito que o custo pesado acontece naquela chamada — não no import.
 
-**`como_dict()` (linhas 141–160).** Devolve o dicionário com as **seis chaves exatas** que o RefCap espera:
+**`como_dict()`.** Devolve **sete chaves** — as seis do RefCap mais uma:
 ```python
 {
     "cap_gen_model": ..., "cap_gen_processor": ...,
     "blip_itrtv_model": ..., "blip_itrtv_processor": ...,
     "sentence_transformer": ...,
+    "spacy_nlp": ...,             # ★ EXTRA — não existe no load_pretrained_models
     "glove_model": None,          # ← ausente de propósito
 }
 ```
+
+**[V] A chave extra é segura:** o `WholePropGener` a consulta com `.get()`; o `QMPropGenerator` — que ficou intocado — **ignora e não quebra**. Verificado nos três cenários (com a chave, sem ela, e no QM).
 
 **[J] Duas decisões:**
 - **O `glove_model` vai como `None`, mas a chave existe.** Nenhum componente do construct o consulta, mas manter a chave evita `KeyError` se algum código futuro fizer `models.get("glove_model")`.
@@ -301,44 +311,64 @@ async def ciclo_de_vida(app: FastAPI):
 
 **Por que não uma variável global carregada no import:** o `lifespan` dá controle sobre **quando** carregar, permite falhar de forma diagnosticável, e garante a liberação no shutdown.
 
-## 5.3 Os contratos (linhas 108–132)
+## 5.3 ★ ATUALIZADO — Os contratos
 
-`PedidoDeJob` com três campos — `videos`, `callback_url`, `parametros`. **[J] Está marcado no docstring como PROVISÓRIO**, porque você ainda vai definir o formato real. Acrescentar campos aqui não afeta nenhum outro arquivo.
+O `PedidoDeJob` **provisório** foi substituído pelo real, que vive em
+`processamento.py` e aceita **as duas formas acordadas**:
 
-## 5.4 ★ `processar_job` — o ponto de extensão (linhas 138–186)
+```json
+// cena única
+{"scene_id":"...", "video_id":"...", "program_id":"...", "scene_video_path":"..."}
+
+// lote
+{"items":[ {...}, {...} ]}
+```
+
+**[J] O método `como_itens()` normaliza as duas numa lista única** — cena única vira lote de um. Todo o resto do código trata só listas, então não há dois caminhos de execução para manter em sincronia.
+
+A resposta segue o contrato `RespostaDeCena`: `scene_id`, `scene_caption_en`, `keywords_en` (com pesos), `model_name`, `model_version`, `status`.
+
+## 5.4 ★ ATUALIZADO — `processar_job` implementado
+
+O bloco marcado **foi preenchido**. Hoje a função só liga as peças:
 
 ```python
 def processar_job(job: Job) -> dict:
-    pedido = job.entrada
-
-    # ################################################################### #
-    # ### AQUI ENTRA O SEU PIPELINE                                     ###
-    # ### 1. Tratar o que veio na requisição                            ###
-    # ### 2. Conferir / atualizar as listas de annos                    ###
-    # ###    (anno_path = annos/{collection}/{anno_file})               ###
-    # ### 3. Decidir collection / construct_name                        ###
-    # ################################################################### #
-
-    cfg = montar_cfg(..., construct_name=job.id, **pedido.get("parametros", {}))
-
-    from construct import build
-    tree_meta = build(cfg, modelos.como_dict())      # ← modelos JÁ carregados
-
-    return {"construct_name": ..., "exp_dir": ..., "tree_meta": tree_meta}
+    pedido = PedidoDeJob(**job.entrada)
+    return processar_pedido(
+        pedido=pedido, job_id=job.id,
+        montar_cfg=montar_cfg, modelos=modelos, config_servico=ConfigServico,
+    )
 ```
 
-**[J] Por que o bloco marcado está exatamente aí:** os três passos que faltam são **os únicos** que dependem do formato da requisição. Tudo antes (carregamento, fila) e tudo depois (chamada ao `build`, resposta) já está resolvido. Quando você definir o contrato, preenche o bloco e nada mais muda.
+**[J] A lógica foi para `processamento.py`** por dois motivos: o `app.py` já tinha 400+ linhas, e a função `processar_pedido` recebe `montar_cfg` e `modelos` como **parâmetros** — o que a torna testável sem subir o FastAPI.
+
+**Os cinco passos que ela executa:**
+
+| passo | o que faz |
+|---|---|
+| 1 | resolver os caminhos das cenas (3 formas de `scene_video_path`) |
+| 2 | **agrupar por diretório** — o `build()` lista um diretório por execução |
+| 3 | decidir o `collection` (precedência: pedido > `program_id` > `job_id`) |
+| 4 | ler/limpar cache (`limpar_cache` default `False`) |
+| 5 | escrever o arquivo de anotações — **sem ele nada é processado** |
+
+Depois: `build(cfg, modelos.como_dict())` e a transformação da saída.
 
 **[L] O `from construct import build` é tardio** — depois que `preparar_sys_path()` já rodou no startup. No topo do arquivo, falharia.
 
-## 5.5 As rotas (linhas 191–231)
+## 5.5 ★ ATUALIZADO — As seis rotas
 
 | rota | o que faz | decisão |
 |---|---|---|
-| `GET /health` | estado dos modelos + fila | permite ao supervisord e a você saberem se está pronto |
-| `POST /jobs` | cria job, devolve **202** + `job_id` | 202 = "aceito, processando"; devolve na hora, não espera |
+| `GET /health` | estado dos modelos (inclui **`gpu.alocado_mb`**) + fila | é o `alocado_mb` que prova residência, não o `pronto` |
+| `POST /jobs` | cria job, devolve **202** + `job_id` | assíncrono; aceita as duas formas de requisição |
 | `GET /jobs/{id}` | estado + resultado | 404 se não existir |
 | `GET /jobs` | lista recentes | sem os resultados, para não pesar |
+| **`GET /teste/construct`** | **★ NOVO** — um vídeo, síncrono | escreve o annos sozinha; mede a GPU antes/depois |
+| **`GET /teste/construct-lote`** | **★ NOVO** — um diretório, síncrono | `limpar_cache` default **`False`** |
+
+**[J] As três produzem o MESMO contrato de saída** — as de teste com o diagnóstico ao lado.
 
 **[J] O `POST` recusa com 503 se os modelos não estiverem prontos** — melhor que aceitar um job que vai falhar.
 
@@ -346,9 +376,15 @@ def processar_job(job: Job) -> dict:
 
 ---
 
-# PARTE 6 — O patch no `construct.py`
+# PARTE 6 — ★ ATUALIZADO — As modificações no RefCap
 
-**A única modificação no RefCap.** Duas mudanças, ambas com o CLI preservado.
+**Duas no `construct.py`** (abaixo) e **uma linha** no seu `WholePropGener.py`:
+
+```python
+self.nlp = models.get("spacy_nlp") or spacy.load("en_core_web_sm")
+```
+
+**[V] Compatibilidade preservada:** sem a chave (o caso do CLI), carrega como antes.
 
 ## 6.1 `os.environ.setdefault` (linhas 2–3)
 
@@ -413,13 +449,18 @@ def main():
 
 **[J]** Registro explícito, para não haver expectativa errada:
 
-- **Não processou um vídeo real.** Não há GPU nem modelos neste ambiente; a tarefa foi substituída por uma função falsa nos testes.
+**Resolvido desde a versão anterior:**
+- ~~o bloco por preencher em `processar_job`~~ → implementado em `processamento.py`
+- ~~a decisão de isolamento~~ → o `collection` usa o `program_id` (precedência: pedido > `program_id` > `job_id`)
+- ~~o contrato de requisição/resposta~~ → os formatos acordados, nas três rotas
+
+**Ainda em aberto:**
+- **Não processou um vídeo real nesta sessão.** Os testes usaram um `build()` falso para verificar o **fluxo** — agrupamento, anotações, cache, formato. O reaproveitamento dos modelos foi provado antes, por instrumentação. *(Você confirmou o carregamento residente no `nvidia-smi` na sua máquina.)*
 - **Não persiste jobs.** Reiniciar o processo perde o histórico (declarado no `jobs.py`).
-- **Não recebe upload de arquivo.** O `PedidoDeJob` recebe **nomes** de vídeo. Se a requisição for trazer o arquivo, será preciso `UploadFile` e gravação em `video_root`.
-- **Não valida a duração dos vídeos.** O patch do `viddataset` (`max(1, int(duration))`) protege contra o crash, mas não há validação na entrada.
+- **Não recebe upload de arquivo.** O pedido traz **caminhos**, não os arquivos.
 - **Não limita o tamanho da fila** nem tem timeout por job.
-- **Não resolve a decisão de isolamento** (`collection` por job) — deliberadamente adiada, e ela vive dentro do bloco marcado.
-- **Os nomes de modelo têm o prefixo `Salesforce/`**, que difere dos defaults do `cfg.py` do RefCap. Não verifiquei se resolvem no HuggingFace Hub — ajuste conforme o seu ambiente.
+- **Os pesos das keywords (0.6/0.4) não foram calibrados** — não há dados anotados.
+- **Os defaults de modelo no código têm o prefixo `Salesforce/`**, que só serve com rede. Use caminhos locais absolutos no `supervisord.conf`.
 
 ---
 

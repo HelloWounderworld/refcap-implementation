@@ -8,6 +8,8 @@
 > **A resposta curta.** **Uma única mudança é necessária e suficiente** para o reaproveitamento em si: extrair `build(cfg, pretrained_models=None)` do `main()` do `construct.py`. Todas as outras mudanças que fizemos servem a propósitos **diferentes** — e este documento separa uma coisa da outra, porque confundi-las leva a mexer mais do que o preciso.
 >
 > **Verificado.** Instrumentei o `load_pretrained_models` para explodir se fosse chamado, e provei que `build(cfg, modelos)` percorre toda a cadeia sem tocá-lo. E provei por identidade (`is`) que os componentes recebem **os mesmos objetos** que estão na GPU.
+>
+> **★ ATUALIZADO.** As mudanças da Parte 4 (spaCy) e da Parte 8 (o pipeline do job) **foram implementadas**. As seções afetadas trazem a marca.
 
 ---
 
@@ -167,6 +169,8 @@ self.nlp = models.get("spacy_nlp") or spacy.load("en_core_web_sm")
 
 **Precisa se:** o serviço vai processar muitas requisições. **[J] É otimização, não correção** — sem ela tudo funciona, só desperdiça.
 
+**★ IMPLEMENTADO.** O `carregador.py` carrega o spaCy no startup (quarto modelo) e o expõe como `spacy_nlp` no `como_dict()`. O `/health` agora lista os quatro.
+
 ## 4.3 As mudanças que são de OUTRA funcionalidade
 
 **[J] Estas não têm relação com reaproveitar modelos.** Elas fazem o `WholePropGenerator` existir e o pipeline não quebrar:
@@ -210,9 +214,13 @@ STARTUP (uma vez)
         └── spaCy           → RAM
     (GloVe NÃO é carregado)
 
-POST /jobs  →  processar_job(job)
+POST /jobs  →  processar_job(job)  →  processar_pedido()      ★ IMPLEMENTADO
     │
-    ├── [seu pipeline: tratar requisição, annos, decidir collection]
+    ├── 1. resolver caminhos das cenas
+    ├── 2. AGRUPAR POR DIRETÓRIO  (build() lista 1 diretório por execução)
+    ├── 3. decidir collection  (pedido > program_id > job_id)
+    ├── 4. ler/limpar cache    (limpar_cache default False)
+    ├── 5. escrever o annos    ← sem isto NADA é processado
     │
     ├── cfg = montar_cfg(...)                    # sem sys.argv, caminhos absolutos
     │
@@ -228,7 +236,11 @@ POST /jobs  →  processar_job(job)
             ├── 6. propostas+ranking usa sentence_transf + spaCy (residentes)
             └── 7. árvore            (sem modelo)
             │
-            └── return tree_meta                 # a resposta da API
+            └── return tree_meta
+                    │
+                    └── transformação → {scene_id, scene_caption_en,
+                                         keywords_en, model_name,
+                                         model_version, status}
 ```
 
 **[J] O ponto central:** a linha `if pretrained_models is None` é o **único** lugar onde o reaproveitamento acontece. Todo o resto do RefCap funciona sem saber que os modelos vieram de fora — porque eles chegam pelo mesmo dicionário de sempre.
@@ -245,18 +257,28 @@ POST /jobs  →  processar_job(job)
 | 4 | spaCy pré-carregado | `WholePropGener.py` | não — é otimização |
 | 5 | `WholePropGener.py` + registro + `choices` | RefCap | não — é a funcionalidade do ranking |
 | 6 | `max(1, int(duration))` | `viddataset.py` | não — é robustez |
+| 7 | pipeline do job (`processamento.py`) | no serviço | não — é o **contrato** de requisição/resposta |
 
 **[J] Se você só quisesse reaproveitar os modelos**, aplicaria 1 e 2 e pararia. As demais você já aplicou por outros motivos, e todas estão validadas.
 
 ---
 
-# PARTE 8 — O que ainda falta
+# PARTE 8 — ★ ATUALIZADO — O que ainda falta
 
-**[J]** Para o processo rodar de ponta a ponta pela API:
+**Resolvido desde a versão anterior:**
 
-1. **Preencher o bloco marcado** em `processar_job` — tratar a requisição, conferir/atualizar annos, decidir `collection`.
-2. **A decisão de isolamento** — `collection` por job, adiada. Sem ela, requisições com vídeos de mesmo nome-base reutilizam o cache e **pulam** o processamento.
-3. **Validar com um vídeo real** — nada foi processado de verdade; as provas usaram objetos falsos para verificar o *fluxo*, não o resultado do captioning.
+| item | como ficou |
+|---|---|
+| ~~preencher o bloco em `processar_job`~~ | implementado em `processamento.py` (5 passos) |
+| ~~a decisão de isolamento~~ | `collection` = pedido > `program_id` > `job_id` |
+
+**[J] Sobre o isolamento — a decisão tomada:** usar o `program_id` faz cenas do mesmo programa **compartilharem cache**, o que é desejável (costumam ser reprocessadas juntas), e mantém programas diferentes isolados. Quando não há `program_id`, cai no `job_id` — isolamento total.
+
+**Ainda em aberto:**
+
+1. **Validar com vídeo real** — as provas usaram objetos falsos para verificar o **fluxo**. O reaproveitamento dos modelos foi provado por instrumentação e por identidade (`is`), e você confirmou a residência no `nvidia-smi`.
+2. **Calibrar os pesos das keywords** (0.6 presença literal / 0.4 semântica) — sem dados anotados, são decisão de projeto.
+3. **A alternativa do BLIP-ITM para os pesos** — pontuar a palavra contra o **frame** em vez da legenda seria mais ancorado no vídeo, mas exige acesso aos frames no momento de montar a resposta.
 
 ---
 
