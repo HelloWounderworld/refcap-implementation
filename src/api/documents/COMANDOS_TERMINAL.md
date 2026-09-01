@@ -6,6 +6,33 @@
 > **Todos os comandos abaixo foram executados** contra um servidor uvicorn de verdade, com `curl` real. As saídas mostradas são as que apareceram.
 >
 > **Ajuste apenas os caminhos.** Os nomes dos campos são os que a API espera.
+>
+> ---
+>
+> ### ★ Sobre o `| python3 -m json.tool`
+>
+> **Ele NÃO é necessário.** O `curl` sozinho faz a requisição inteira. O pipe só
+> **formata a resposta** para ficar legível.
+>
+> **[V] Verificado — `curl` puro, sem pipe:**
+> ```bash
+> curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '{...}'
+> ```
+> ```
+> {"job_id":"49956a0e6d5b4fa7b4167bf9325a7a3b","estado":"na_fila","consultar_em":"/jobs/49956a0e..."}
+> ```
+> Funciona igual — só vem tudo numa linha.
+>
+> | você escreve | o que muda |
+> |---|---|
+> | `curl -X POST ...` | resposta crua, uma linha, com barra de progresso |
+> | `curl -s -X POST ...` | o `-s` só **esconde a barra de progresso** |
+> | `... \| python3 -m json.tool` | formata em várias linhas (precisa de python) |
+> | `... \| jq` | idem, mais colorido (precisa de `jq` instalado) |
+> | `... -o saida.json` | grava num arquivo em vez de mostrar |
+>
+> **[J] Use o pipe quando for LER a resposta**; omita quando for só disparar a
+> requisição ou quando outro programa for consumir a saída.
 
 ---
 
@@ -57,6 +84,28 @@ curl -s -X POST http://localhost:8000/jobs \
     "program_id": "prog2",
     "scene_video_path": "/caminho/prog2/vidUnico"
   }' | python3 -m json.tool
+```
+
+---
+
+## 2b. As mesmas duas, em `curl` PURO
+
+Sem nenhum pipe — para colar e disparar:
+
+```bash
+# lote
+curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '{"items":[{"scene_id":"cena_01","video_id":"vidA","program_id":"prog1","scene_video_path":"/caminho/prog1/vidA/cena_01.mp4"},{"scene_id":"cena_02","video_id":"vidA","program_id":"prog1","scene_video_path":"/caminho/prog1/vidA/cena_02.mp4"}]}'
+
+# cena única
+curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '{"scene_id":"cena_solo","video_id":"vidUnico","program_id":"prog2","scene_video_path":"/caminho/prog2/vidUnico"}'
+
+# consultar
+curl http://localhost:8000/jobs/COLE_O_JOB_ID
+```
+
+**A resposta vem assim** (uma linha, JSON compacto):
+```
+{"job_id":"49956a0e6d5b4fa7b4167bf9325a7a3b","estado":"na_fila","consultar_em":"/jobs/49956a0e..."}
 ```
 
 ---
