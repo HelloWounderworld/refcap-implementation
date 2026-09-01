@@ -8,6 +8,8 @@
 > **O ponto de partida.** O `POST /jobs` existia mas **não funcionava de verdade**: reaproveitava os modelos, mas ignorava a lista de vídeos do pedido e não escrevia o arquivo de anotações. O job voltava `concluido` sem ter processado nada.
 >
 > **O ponto de chegada.** As três rotas — uma cena, lote por diretório, e o `POST /jobs` — produzem **o mesmo contrato de saída**, com os modelos residentes reaproveitados em todas.
+>
+> **★ ATUALIZADO.** O `POST /jobs` passou a ser **síncrono por padrão**: devolve o resultado completo (HTTP 200) em vez de 202 + `job_id`. O modo assíncrono continua disponível com `"assincrono": true`. Ver Parte 4.
 
 ---
 
@@ -217,11 +219,35 @@ Depois: `build(cfg, modelos.como_dict())` — com os modelos residentes.
 
 **[V] As três rotas produzem o mesmo contrato:**
 
-| rota | formato |
+| rota | formato | espera? |
+|---|---|---|
+| `GET /teste/construct` | o objeto, **no topo** da resposta | sim |
+| `GET /teste/construct-lote` | `{"items": [ ...o objeto... ]}` | sim |
+| `POST /jobs` | `{"job_id", "estado", "resumo", "items": [...]}` | **sim** ★ |
+| `POST /jobs` com `"assincrono": true` | 202 + `job_id` | não |
+
+### ★ O envelope do `POST /jobs`
+
+```json
+{
+  "job_id": "9e8adacb...",
+  "estado": "concluido",
+  "resumo": {"total": 3, "ok": 3, "erros": 0},
+  "items": [ { ...o contrato de cada cena... } ],
+  "grupos": [ {"diretorio": "...", "collection": "prog1", "cenas": 2} ],
+  "segundos": 12.4
+}
+```
+
+**[J] Os campos extras são diagnóstico:** `grupos` mostra o agrupamento por diretório (quantas chamadas de `build` houve e com qual `collection`), e `segundos` o tempo total. Ignore-os se só precisar dos `items`.
+
+**Códigos HTTP:**
+
+| situação | HTTP |
 |---|---|
-| `GET /teste/construct` | o objeto, **no topo** da resposta |
-| `GET /teste/construct-lote` | `{"items": [ ...o objeto... ]}` |
-| `POST /jobs` | `{"items": [ ...o objeto... ]}` |
+| tudo certo | 200 |
+| cena individual falhou | **200**, com `status: "error"` no item |
+| o job inteiro falhou | 500 |
 
 **[J] Nas rotas de teste, o contrato fica no topo e o diagnóstico ao lado** (`passos`, `modelos_reaproveitados`, `ranking`, `exp_dir`). Você recebe o formato de produção **sem perder** o que torna a rota útil para depurar.
 

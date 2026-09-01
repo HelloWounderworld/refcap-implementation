@@ -7,7 +7,9 @@
 >
 > **O que o serviço entrega hoje.** Supervisord sobe o FastAPI; o FastAPI carrega os **quatro** modelos residentes (3 na GPU + spaCy) **uma vez**; o serviço aceita POSTs assíncronos com `job_id`, consulta por GET e webhook opcional — e o `POST /jobs` **já processa de ponta a ponta**, nos dois formatos de requisição acordados.
 >
-> **★ ATUALIZADO.** A versão anterior deste relatório descrevia um esqueleto com um bloco por preencher em `processar_job`. Esse bloco **foi implementado** — a lógica vive em `processamento.py`, e o detalhamento está em `RefCap_Relatorio_Contrato_API.md`. As seções afetadas trazem a marca **★ ATUALIZADO**.
+> **★ ATUALIZADO (2ª revisão).** Duas mudanças desde a versão anterior:
+> 1. o `POST /jobs` passou a ser **síncrono por padrão** — devolve o resultado completo em vez de 202 + `job_id` (§5.5);
+> 2. o bloco por preencher em `processar_job` **foi implementado** — a lógica vive em `processamento.py`, e o detalhamento está em `RefCap_Relatorio_Contrato_API.md`. As seções afetadas trazem a marca **★ ATUALIZADO**.
 
 ---
 
@@ -36,13 +38,15 @@ uvicorn app:app  ──►  FastAPI
                         │     ModelosResidentes.carregar()       ← os 3 modelos → GPU
                         │     ► a partir daqui: ESTADO PERMANENTE
                         │
-                        ├─ POST /jobs
-                        │     registro.criar()        → devolve job_id (202) na hora
-                        │     BackgroundTasks         → executa depois de responder
-                        │        └─ registro.executar()
-                        │              async with trava:          ← UM job por vez
-                        │                  asyncio.to_thread(processar_job)
-                        │              └─ (fora da trava) webhook
+                        ├─ POST /jobs   ★ SÍNCRONO por padrão
+                        │     registro.criar()
+                        │     await registro.executar()   ← AGUARDA terminar
+                        │        async with trava:        ← UM job por vez
+                        │            asyncio.to_thread(processar_job)
+                        │        └─ (fora da trava) webhook
+                        │     → devolve HTTP 200 com o RESULTADO COMPLETO
+                        │
+                        │     com "assincrono": true → 202 + job_id (modo antigo)
                         │
                         ├─ GET /jobs/{id}   → estado + resultado
                         ├─ GET /jobs        → lista
@@ -362,7 +366,7 @@ Depois: `build(cfg, modelos.como_dict())` e a transformação da saída.
 | rota | o que faz | decisão |
 |---|---|---|
 | `GET /health` | estado dos modelos (inclui **`gpu.alocado_mb`**) + fila | é o `alocado_mb` que prova residência, não o `pronto` |
-| `POST /jobs` | cria job, devolve **202** + `job_id` | assíncrono; aceita as duas formas de requisição |
+| `POST /jobs` | **aguarda e devolve o resultado** (HTTP 200) | ★ síncrono por padrão; `"assincrono": true` volta ao 202 |
 | `GET /jobs/{id}` | estado + resultado | 404 se não existir |
 | `GET /jobs` | lista recentes | sem os resultados, para não pesar |
 | **`GET /teste/construct`** | **★ NOVO** — um vídeo, síncrono | escreve o annos sozinha; mede a GPU antes/depois |
@@ -372,7 +376,26 @@ Depois: `build(cfg, modelos.como_dict())` e a transformação da saída.
 
 **[J] O `POST` recusa com 503 se os modelos não estiverem prontos** — melhor que aceitar um job que vai falhar.
 
-**[J] `BackgroundTasks` em vez de `asyncio.create_task`:** o FastAPI garante que a tarefa só começa **depois** que a resposta foi enviada. O cliente recebe o `job_id` imediatamente.
+### ★ Os dois modos do `POST /jobs`
+
+| modo | quando | devolve |
+|---|---|---|
+| **síncrono** (padrão) | `"assincrono"` ausente ou `false` | **HTTP 200** com `estado`, `resumo` e `items` |
+| assíncrono | `"assincrono": true` | HTTP 202 + `job_id`; consulte por `GET /jobs/{id}` |
+
+**[J] Por que o síncrono virou o padrão:** é o que o consumidor da API espera — uma requisição, uma resposta. O modo assíncrono ficou como **saída para lotes grandes**: no síncrono a conexão fica aberta até terminar, e proxies costumam derrubar conexões longas.
+
+**[J] Aguardar NÃO bloqueia o serviço.** O `executar()` roda a tarefa em `asyncio.to_thread` e sob a trava da fila — então, enquanto um job processa, o `/health` e o `GET /jobs` continuam respondendo, e um segundo POST espera a vez sem concorrer pela GPU.
+
+**Os códigos HTTP separam dois tipos de falha:**
+
+| situação | HTTP |
+|---|---|
+| tudo certo | 200 |
+| cena individual falhou (caminho errado) | **200**, com `status: "error"` naquele item |
+| o job inteiro falhou (exceção no `build`) | 500 |
+
+**[V] Verificado com `curl` real:** um caminho errado devolveu `HTTP 200` com `{"total": 1, "ok": 0, "erros": 1}`. Num lote, uma cena ruim não derruba as outras nem muda o código HTTP.
 
 ---
 
@@ -433,7 +456,8 @@ def main():
 |---|---|---|---|
 | 1 | serviço sobe e acha o RefCap | réplica `proj/src` + `proj/api` | `refcap_root: /tmp/proj/src` ✓ |
 | 2 | `GET /health` | requisição real | 200, JSON com estado dos modelos ✓ |
-| 3 | `POST /jobs` | requisição real | 202 + `job_id` imediato ✓ |
+| 3 | `POST /jobs` síncrono | `curl` real | **HTTP 200 + resultado completo** ✓ |
+| 3b | `POST /jobs` com `"assincrono": true` | `curl` real | HTTP 202 + `job_id` ✓ |
 | 4 | ciclo do job | polling até terminar | `na_fila → executando → concluido` ✓ |
 | 5 | job inexistente | `GET /jobs/naoexiste` | 404 ✓ |
 | 6 | **fila serializa** | 5 POSTs simultâneos, contador de concorrência | **máximo 1 executando** ✓ |

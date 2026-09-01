@@ -214,7 +214,7 @@ STARTUP (uma vez)
         └── spaCy           → RAM
     (GloVe NÃO é carregado)
 
-POST /jobs  →  processar_job(job)  →  processar_pedido()      ★ IMPLEMENTADO
+POST /jobs (SÍNCRONO por padrão) → processar_job → processar_pedido()  ★ IMPLEMENTADO
     │
     ├── 1. resolver caminhos das cenas
     ├── 2. AGRUPAR POR DIRETÓRIO  (build() lista 1 diretório por execução)
@@ -241,6 +241,9 @@ POST /jobs  →  processar_job(job)  →  processar_pedido()      ★ IMPLEMENTA
                     └── transformação → {scene_id, scene_caption_en,
                                          keywords_en, model_name,
                                          model_version, status}
+                            │
+                            └── HTTP 200 com {job_id, estado, resumo, items}
+                                (ou 202 + job_id, se "assincrono": true)
 ```
 
 **[J] O ponto central:** a linha `if pretrained_models is None` é o **único** lugar onde o reaproveitamento acontece. Todo o resto do RefCap funciona sem saber que os modelos vieram de fora — porque eles chegam pelo mesmo dicionário de sempre.

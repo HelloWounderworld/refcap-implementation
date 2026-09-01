@@ -9,7 +9,7 @@
 >
 > **Antes de tudo:** a Parte 0 traz a auditoria de conflitos.
 >
-> **★ ATUALIZADO.** O `POST /jobs` deixou de ser um esqueleto — hoje processa de ponta a ponta, nos dois formatos acordados. Os passos afetados (1, 9) e a Parte 4 trazem a marca **★ ATUALIZADO**.
+> **★ ATUALIZADO (2ª revisão).** O `POST /jobs` processa de ponta a ponta **e agora é síncrono por padrão**: devolve o resultado completo em vez de 202 + `job_id`. Os passos afetados (1, 9) e a Parte 4 trazem a marca.
 
 ---
 
@@ -282,7 +282,9 @@ curl -s "localhost:8000/teste/construct-lote?diretorio=/dados/cenas&limite=3" | 
 ```
 **[J] Use `limite` na primeira vez** — a rota é síncrona e um diretório grande estoura o timeout.
 
-**(c) O caminho de produção — assíncrono, nos formatos acordados:**
+**(c) O caminho de produção — `POST /jobs`, nos formatos acordados:**
+
+★ **A resposta traz o resultado completo** — não é mais preciso consultar depois.
 ```bash
 # cena única
 curl -s -X POST localhost:8000/jobs -H 'Content-Type: application/json' -d '{
@@ -298,18 +300,35 @@ curl -s -X POST localhost:8000/jobs -H 'Content-Type: application/json' -d '{
   ]
 }'
 
+```
+
+**Se o lote for grande** e você preferir não segurar a conexão:
+```bash
+curl -s -X POST localhost:8000/jobs -H 'Content-Type: application/json' -d '{
+  "items":[ ... ], "assincrono": true
+}'
+# devolve 202 + job_id; consulte depois:
 curl -s localhost:8000/jobs/<job_id> | python -m json.tool
 ```
 
 **O que esperar nas três:** o mesmo contrato de saída.
 ```json
 {
-  "scene_id": "cena_01",
-  "scene_caption_en": "a woman preparing food in a kitchen",
-  "keywords_en": [{"token":"woman","weight":0.6}, ...],
-  "model_name": "refcap", "model_version": "v1", "status": "success"
+  "job_id": "9e8adacb...",
+  "estado": "concluido",
+  "resumo": {"total": 3, "ok": 3, "erros": 0},
+  "items": [
+    {
+      "scene_id": "cena_01",
+      "scene_caption_en": "a woman preparing food in a kitchen",
+      "keywords_en": [{"token":"woman","weight":0.6}, ...],
+      "model_name": "refcap", "model_version": "v1", "status": "success"
+    }
+  ]
 }
 ```
+
+**[V] Verificado com `curl` real:** `HTTP 200`, `estado: concluido`, `{"total": 3, "ok": 3, "erros": 0}`.
 
 **★ A prova do reaproveitamento** está no campo `modelos_reaproveitados` das rotas de teste:
 ```json
@@ -436,7 +455,8 @@ supervisorctl tail -f refcap-api stderr
 | 8 | `python app.py` (com modelos) | `alocado_mb > 0` |
 | 9a | `curl ".../teste/construct?video=X.mp4"` | contrato + `alocado_mb` estável |
 | 9b | `curl ".../teste/construct-lote?diretorio=D&limite=3"` | `{"items":[...]}` |
-| 9c | `curl -X POST .../jobs` (formato acordado) | 202 + `job_id` |
+| 9c | `curl -X POST .../jobs` (formato acordado) | **HTTP 200 + resultado completo** |
+| 9d | idem com `"assincrono": true` | 202 + `job_id` |
 | 10 | `supervisorctl update` | `RUNNING` |
 | 11 | comparar PID após 60 s | mesmo PID |
 | 12 | `python diagnostico_supervisord.py` | (só se falhar) |

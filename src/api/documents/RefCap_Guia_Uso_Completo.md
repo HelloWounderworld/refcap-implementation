@@ -227,24 +227,57 @@ curl -s "localhost:8000/teste/construct?video=cena_001.mp4&proposal_generator=qm
 
 **[J] Use `collection` diferente em cada um** — senão o segundo reaproveitaria os artefatos do primeiro.
 
-## B.6 O caminho de produção (assíncrono)
+## B.6 ★ ATUALIZADO — O caminho de produção: `POST /jobs`
+
+**A resposta traz o resultado completo** — a chamada aguarda o processamento.
 
 ```bash
-# criar o job
-curl -s -X POST localhost:8000/jobs \
-     -H 'Content-Type: application/json' \
-     -d '{"videos": ["cena_001.mp4"]}' | python -m json.tool
+# cena única
+curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '{
+  "scene_id": "cena_01", "video_id": "vidA", "program_id": "prog1",
+  "scene_video_path": "/caminho/prog1/vidA/cena_01.mp4"
+}'
 
-# consultar
-curl -s localhost:8000/jobs/<job_id> | python -m json.tool
-
-# com webhook
-curl -s -X POST localhost:8000/jobs \
-     -H 'Content-Type: application/json' \
-     -d '{"videos":["cena_001.mp4"], "callback_url":"http://seu-sistema/callback"}'
+# lote
+curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '{
+  "items": [
+    {"scene_id":"cena_01","video_id":"vidA","program_id":"prog1","scene_video_path":"..."},
+    {"scene_id":"cena_02","video_id":"vidB","program_id":"prog1","scene_video_path":"..."}
+  ]
+}'
 ```
 
-**⚠️ O `processar_job` ainda tem o bloco `### AQUI ENTRA O SEU PIPELINE ###` por preencher.** Até você implementá-lo, use o `GET /teste/construct` para testar o fluxo completo.
+**A resposta (HTTP 200):**
+```json
+{
+  "job_id": "9e8adacb...",
+  "estado": "concluido",
+  "resumo": {"total": 2, "ok": 2, "erros": 0},
+  "items": [
+    {
+      "scene_id": "cena_01",
+      "scene_caption_en": "a woman preparing food in a kitchen",
+      "keywords_en": [{"token":"woman","weight":0.6}, ...],
+      "model_name": "refcap", "model_version": "v1", "status": "success"
+    }
+  ]
+}
+```
+
+**Para lotes grandes — o modo assíncrono:**
+```bash
+curl -X POST http://localhost:8000/jobs -H 'Content-Type: application/json' -d '{
+  "items": [ ... ], "assincrono": true
+}'
+# -> 202 + job_id
+curl http://localhost:8000/jobs/<job_id>
+```
+
+**[J] Quando usar cada um:** o síncrono segura a conexão até terminar — simples e direto, mas um proxy pode derrubar conexões muito longas. O assíncrono evita isso, ao custo de uma consulta a mais.
+
+**Campos opcionais** em qualquer das formas: `collection`, `proposal_generator`, `limpar_cache`, `callback_url`, `assincrono`.
+
+---
 
 ---
 
@@ -309,8 +342,9 @@ python diagnostico_supervisord.py --logs /var/log/refcap-api
 **[J]**
 
 - **Nada foi executado com GPU ou vídeo real** nesta sessão. Validei estrutura, rotas, códigos de retorno e a lógica do reaproveitamento com objetos falsos.
-- **O `POST /jobs` está incompleto** — o bloco marcado em `processar_job` ainda precisa do seu pipeline.
-- **A decisão de isolamento** (`collection` por job) segue adiada. Na rota de teste, o `collection` é parâmetro; no `POST /jobs`, ainda não.
+- ~~O `POST /jobs` está incompleto~~ → **implementado**, síncrono por padrão, nos dois formatos acordados.
+- ~~A decisão de isolamento~~ → **resolvida**: `collection` = pedido > `program_id` > `job_id`.
+- **Sem limite de tamanho de lote nem timeout por job.** No modo síncrono, um lote muito grande pode esbarrar em timeout de proxy — use `"assincrono": true`.
 - **Sem upload de arquivo** — os vídeos precisam já estar em `video_root`.
 - **Os tempos e valores de exemplo** na Parte 3 são ilustrativos, não medidos.
 
