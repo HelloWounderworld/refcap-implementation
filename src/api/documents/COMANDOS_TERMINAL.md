@@ -84,6 +84,43 @@ curl -s -X POST http://localhost:8000/jobs \
 }
 ```
 
+**Nao daria para colocar a possibilidade de o status informar o seguinte, caso de algum erro, como abaixo?**
+
+```json
+{
+  "job_id": "9e8adacb...",
+  "estado": "concluido",
+  "resumo": {"total": 3, "ok": 3, "erros": 0},
+  "items": [
+    {
+      "scene_id": "cena_01",
+      "scene_caption_en": "a woman preparing food in a kitchen",
+      "keywords_en": [
+        {"token": "woman",   "weight": 0.6},
+        {"token": "kitchen", "weight": 0.6},
+        {"token": "food",    "weight": 0.6}
+      ],
+      "model_name": "refcap",
+      "model_version": "v1",
+      "status": "error",
+      "error_code": "INVALID_REQUEST",
+      "message": "Invalid Request (alguma coisa do tipo...)"
+    }
+  ],
+  "segundos": 12.4
+}
+```
+
+**Sendo os erros de codigos sao como o seguinte**
+
+```markdown
+INVALID_REQUEST
+CAPTION_FAILED
+SCENE_NOT_FOUND
+FILE_NOT_FOUND
+INTERNAL_ERROR
+```
+
 **[V] Verificado com `curl` real:** `HTTP 200`, `estado: concluido`, `{"total": 3, "ok": 3, "erros": 0}`.
 
 ---
