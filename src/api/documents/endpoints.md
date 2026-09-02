@@ -13,6 +13,8 @@
 }
 ```
 
+**Ainda nao se sabe se sera necessario utilizar o "video_id" ou nao... Agora, o "scene_id" e o "program_id" sera necessario para conseguirmos identificar o diretorio me que iremos realizar o captioning sobre as cenas de cada programa de TV que esta sendo indicado pelo "program_id"... Por isso, vamos precisar verificar e tornar fixo algumas variaveis que ira cofigurar o annos e o result, de modo que, se vier um "program_id" verificarmos se ja existe essa variavel salvo ou nao! Se estiver salvo, utilizar o mesmo, porem, se nao tiver salvo, criar um novo annos com o nome desse programa, e utulizar o result, tambem, em cima desse programa, utilizando todas as funcionalidades dos caches em cima dela!!**
+
 ### Response:
 **Precisa desse job_id??? Nao daria para fixar somente para um unico tipo de video?**
 ```json
