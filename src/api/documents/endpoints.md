@@ -19,7 +19,7 @@
 {
   "job_id": "9e8adacb...",
   "state": "concluded",
-  "resume": {"total": 3, "ok": 3, "erros": 0},
+  "resume": {"total": 3, "ok": 3, "errors": 0},
   "items": [
     {
       "scene_id": "cena_01",
@@ -34,7 +34,7 @@
       "status": "success"
     }
   ],
-  "segundos": 12.4
+  "seconds": 12.4
 }
 ```
 
@@ -43,8 +43,8 @@
 ```json
 {
   "job_id": "9e8adacb...",
-  "estado": "concluido",
-  "resumo": {"total": 3, "ok": 3, "erros": 0},
+  "state": "concluido",
+  "resume": {"total": 3, "ok": 3, "errors": 0},
   "items": [
     {
       "scene_id": "cena_01",
@@ -61,7 +61,7 @@
       "message": "Invalid Request (alguma coisa do tipo...)"
     }
   ],
-  "segundos": 12.4
+  "seconds": 12.4
 }
 ```
 
