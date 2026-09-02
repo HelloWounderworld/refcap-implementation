@@ -17,6 +17,7 @@
 
 ### Response:
 **Precisa desse job_id??? Nao daria para fixar somente para um unico tipo de video?**
+**No keywords_en colocar somente as palavras chaves que contem dentro do captioning!!**
 ```json
 {
   "job_id": "9e8adacb...",
