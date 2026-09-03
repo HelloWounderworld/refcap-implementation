@@ -155,3 +155,8 @@ Resposta: Nao tem problema!! O importante eh dividir pelo "program_id" que eh o 
 - Jobs em memória — reiniciar perde o histórico -> Resposta: Precisamos guardar isso em algum lugar... Talvez, aproveitar os proposal.json?
 - Sem limite de fila nem timeout por job -> Resposta: Pensando na possibilidade da quantidade de processamento das cenas superarem mais de 500 videos, nao dariamos estabelecer como um limite padrao da quantidade de cenas a ser processados em forma de pilha?
 - Acúmulo em disco: cada job deixa artefatos em três lugares, sem limpeza -> Resposta: Precisamos limpar isso!! Qual seria a alternativa boa para realizar tal limpeza para conseguirmos processar outras cenas sem ruido?
+
+## Arquitetural, para discutir:
+
+- O app.py está com ~700 linhas e mistura ciclo de vida, contratos e três rotas de teste -> Resposta: Precisamos otimizar esse negocio ai, hein!!! Nao pode misturar os ciclo de vida! E as rotas de testes precisam melhorar de modo que consigamos testar os modelos sem que ocorre algum tipo de ruido desnecessario!!
+- As rotas /teste/* duplicam parte da lógica de processamento.py -> Resposta: Vamos precisar deduplicar isso!! Nao esta otimizado!!
