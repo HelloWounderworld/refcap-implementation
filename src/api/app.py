@@ -47,6 +47,11 @@ from processamento import (MODEL_NAME_PADRAO, MODEL_VERSION_PADRAO, CaptionReque
                            ErrorCode, processar_pedido, ranquear_keywords)
 from ponte_refcap import RAIZ_REFCAP, montar_cfg, preparar_sys_path
 
+# ★ As rotas de diagnóstico usam um `collection` PRÓPRIO — nunca o program_id.
+# Assim você testa sem contaminar o cache, o annos e os resultados de dados
+# reais. Os artefatos de diagnóstico ficam todos sob este identificador.
+COLLECTION_DIAGNOSTICO = "diagnostics"
+
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
@@ -270,7 +275,7 @@ async def listar_jobs(limite: int = 50) -> dict:
 @app.get("/teste/construct", summary="[TESTE] roda o construct num vídeo só")
 def teste_construct(
     video: str,
-    collection: str = "teste_api",
+    collection: str = COLLECTION_DIAGNOSTICO,
     proposal_generator: str = "whole",
     force: bool = True,
 ) -> dict:
@@ -357,7 +362,10 @@ def teste_construct(
     # --- 4. montar o cfg -------------------------------------------------- #
     cfg = montar_cfg(
         collection=collection,
-        construct_name=f"teste_{int(time.time())}",
+        # timestamp aqui de propósito: cada execução de diagnóstico fica
+        # isolada, ao contrário da produção (construct_name="") que é
+        # cumulativa por programa.
+        construct_name=f"diag_{int(time.time())}",
         caption_generator="blip",
         proposal_generator=proposal_generator,
         device=ConfigServico.device,
@@ -465,7 +473,7 @@ def teste_construct(
 @app.get("/teste/construct-lote", summary="[TESTE] roda o construct num DIRETÓRIO de vídeos")
 def teste_construct_lote(
     diretorio: str,
-    collection: str = "teste_lote",
+    collection: str = COLLECTION_DIAGNOSTICO,
     proposal_generator: str = "whole",
     force: bool = False,
     limite: int = 0,
@@ -550,7 +558,7 @@ def teste_construct_lote(
     cfg = montar_cfg(
         video_root=diretorio,
         collection=collection,
-        construct_name=f"lote_{int(time.time())}",
+        construct_name=f"diag_{int(time.time())}",
         caption_generator="blip",
         proposal_generator=proposal_generator,
         device=ConfigServico.device,

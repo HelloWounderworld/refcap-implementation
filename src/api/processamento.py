@@ -45,6 +45,43 @@ log = logging.getLogger(__name__)
 # Extensões aceitas ao resolver o caminho de uma cena.
 EXTENSOES_VIDEO = (".mp4", ".mkv", ".avi", ".webm", ".mov", ".m4v")
 
+# ★★★ O ÚNICO PONTO QUE CONHECE O FORMATO DO CAMINHO ★★★
+#
+# O contrato acordado é:
+#     scene_video_path = <prefixo>/{program_id}/{video_id}/{scene_id}.mp4
+#
+# O RefCap identifica cada vídeo pelo NOME-BASE do arquivo — que hoje é o
+# `scene_id`. Isso funciona porque, dentro de um mesmo `program_id`, o
+# `scene_id` é único (premissa confirmada com o time).
+#
+# SE O FORMATO DA REQUISIÇÃO MUDAR, MUDE AQUI E MAIS NADA:
+#
+#   "scene_id"            -> o nome-base é o próprio scene_id  (padrão hoje)
+#   "video_id__scene_id"  -> use se um dia o scene_id repetir entre video_id
+#                            do MESMO program_id
+#
+# Trocar esta constante altera apenas como a cena é registrada no annos e no
+# cache. Todo o resto do pipeline — agrupamento, build, resposta — continua
+# igual, para requisição única e em lote.
+IDENTIFICADOR = "scene_id"
+
+
+def montar_identificador(item: "SceneItem", nome_do_arquivo: str) -> str:
+    """Devolve o nome-base com que o RefCap vai registrar esta cena.
+
+    `nome_do_arquivo` é o stem do arquivo encontrado no disco — usado quando
+    o IDENTIFICADOR é "scene_id", porque é ele que o RefCap vê no os.listdir.
+    """
+    if IDENTIFICADOR == "video_id__scene_id":
+        if not item.video_id:
+            raise CenaNaoResolvida(
+                ErrorCode.INVALID_REQUEST,
+                f"IDENTIFICADOR exige `video_id`, ausente na cena "
+                f"'{item.scene_id}'",
+            )
+        return f"{item.video_id}__{item.scene_id}"
+    return nome_do_arquivo
+
 MODEL_NAME_PADRAO = os.environ.get("REFCAP_MODEL_NAME", "refcap")
 MODEL_VERSION_PADRAO = os.environ.get("REFCAP_MODEL_VERSION", "v1")
 
@@ -220,16 +257,18 @@ def resolver_cena(item: SceneItem) -> tuple[str, str, str]:
             candidato = caminho / f"{item.scene_id}{ext}"
             if candidato.is_file():
                 return str(caminho), candidato.name, candidato.stem
-        # último recurso: um único vídeo no diretório
+        # ⚠️ REMOVIDO na Etapa 2: o fallback que usava o ÚNICO vídeo do
+        # diretório quando nenhum batia com o scene_id.
+        #
+        # Motivo: legendava o arquivo errado EM SILÊNCIO, devolvendo
+        # status "success" com a legenda de outra cena. Melhor falhar.
         videos = sorted(
             p for p in caminho.iterdir()
             if p.is_file() and p.suffix.lower() in EXTENSOES_VIDEO
         )
-        if len(videos) == 1:
-            return str(caminho), videos[0].name, videos[0].stem
         raise CenaNaoResolvida(
             ErrorCode.SCENE_NOT_FOUND,
-            f"diretório {caminho} tem {len(videos)} vídeo(s); "
+            f"diretório {caminho} tem {len(videos)} vídeo(s), "
             f"nenhum chamado '{item.scene_id}'",
         )
 
@@ -381,10 +420,12 @@ def processar_pedido(
     falhas: list[SceneResponse] = []
     for item in itens:
         try:
-            diretorio, arquivo, nome_base = resolver_cena(item)
+            diretorio, arquivo, stem = resolver_cena(item)
             resolvidos.append({
-                "item": item, "diretorio": diretorio,
-                "arquivo": arquivo, "nome_base": nome_base,
+                "item": item, "diretorio": diretorio, "arquivo": arquivo,
+                # o nome-base com que o RefCap registra a cena — ver
+                # IDENTIFICADOR no topo do módulo
+                "nome_base": montar_identificador(item, stem),
             })
         except CenaNaoResolvida as exc:
             falhas.append(SceneResponse.falha(
@@ -409,15 +450,19 @@ def processar_pedido(
     # Usar o program_id faz cenas do mesmo programa COMPARTILHAREM cache — o que
     # é desejável, já que costumam ser reprocessadas juntas.
     def collection_de(grupo: list[dict]) -> str:
-        """O `collection` é DERIVADO do program_id — não vem do pedido.
+        """O `collection` É o `program_id`. Um só identificador, cinco caminhos:
 
-        Um só identificador governa os cinco caminhos do RefCap:
-            annos/{collection}/            meta/captions/{collection}_*.jsonl
-            meta/framefeatures/{collection}.pt   meta/scores/{collection}_*.pt
-            results/construct/{collection}/
+            annos/{program_id}/vcmr.jsonl
+            meta/captions/{program_id}_blip.jsonl
+            meta/framefeatures/{program_id}.pt
+            meta/scores/{program_id}_blip.pt
+            results/construct/{program_id}/
 
-        Sem `program_id` (caso que não deveria ocorrer no contrato acordado),
-        cai no job_id — isolamento total, sem reaproveitar cache de ninguém.
+        É isso que garante que dois programas nunca se cruzem: cache, annos e
+        resultados ficam todos sob o mesmo identificador.
+
+        Sem `program_id` — caso que o contrato não prevê — cai no job_id, que
+        dá isolamento total sem reaproveitar cache de ninguém.
         """
         pid = grupo[0]["item"].program_id
         return pid if pid else f"job_{job_id[:12]}"
@@ -435,7 +480,13 @@ def processar_pedido(
         cfg = montar_cfg(
             video_root=diretorio,                       # ← PASSO 5: do pedido
             collection=collection,                      # ← PASSO 4: isolamento
-            construct_name=f"job_{job_id[:12]}",
+            # ★ construct_name VAZIO: o exp_dir do RefCap é
+            #     res_dir/construct_dir/{collection}/{construct_name}
+            #   Com "" o os.path.join colapsa o último nível, produzindo
+            #     results/construct/{program_id}/
+            #   Assim os artefatos do programa ficam num lugar só, cumulativo
+            #   entre requisições — em vez de um diretório por job.
+            construct_name="",
             caption_generator="blip",
             proposal_generator=pedido.proposal_generator,
             device=config_servico.device,
