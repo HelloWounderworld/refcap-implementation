@@ -340,7 +340,7 @@ def processar_pedido(
         return pid if pid else f"job_{job_id[:12]}"
 
     # --- PASSO 4: rodar um build por grupo --------------------------------- #
-    from construct import build
+    from construct_new import build
 
     por_cena: dict[str, SceneResponse] = {}
     diagnostico_por_cena: dict[str, dict] = {}
