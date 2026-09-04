@@ -40,6 +40,8 @@ from collections import defaultdict
 
 from pydantic import BaseModel, Field
 
+import persistencia
+
 log = logging.getLogger(__name__)
 
 # Extensões aceitas ao resolver o caminho de uma cena.
@@ -362,21 +364,14 @@ def ranquear_keywords(
 # --------------------------------------------------------------------------- #
 # O pipeline
 # --------------------------------------------------------------------------- #
-def _limpar_caches(cfg, collection: str) -> list[str]:
-    """Apaga os 3 artefatos de meta_dir chaveados por `collection`."""
-    alvos = [
-        os.path.join(cfg.meta_dir, cfg.captions_dir,
-                     f"{collection}_{cfg.caption_generator}.jsonl"),
-        os.path.join(cfg.meta_dir, cfg.raw_capframe_scores_dir,
-                     f"{collection}_{cfg.caption_generator}.pt"),
-        os.path.join(cfg.meta_dir, cfg.framefeatures_dir, f"{collection}.pt"),
-    ]
-    apagados = []
-    for a in alvos:
-        if os.path.isfile(a):
-            os.remove(a)
-            apagados.append(a)
-    return apagados
+def _limpar_caches(cfg, collection: str, nomes_base: list[str]) -> dict:
+    """Limpeza CIRÚRGICA: só as cenas indicadas, não o programa inteiro.
+
+    A versão anterior apagava os três arquivos por completo — o que
+    descartaria o cache de todas as outras cenas do programa. Com o
+    `collection = program_id` da Etapa 2, isso passou a ser destrutivo.
+    """
+    return persistencia.limpar_cache_das_cenas(cfg, collection, nomes_base)
 
 
 def _escrever_annos(cfg, collection: str, nomes_base: list[str]) -> str:
@@ -471,7 +466,11 @@ def processar_pedido(
     from construct import build
 
     por_cena: dict[str, SceneResponse] = {}
+    diagnostico_por_cena: dict[str, dict] = {}
     diagnostico_grupos = []
+    # o `cfg` é criado dentro do laço, por grupo; guardamos o res_dir para
+    # usar na persistência, que acontece depois de todos os grupos
+    cfg_res_dir: str | None = None
 
     for diretorio, grupo in grupos.items():
         collection = collection_de(grupo)
@@ -495,6 +494,8 @@ def processar_pedido(
             sentence_transformer=config_servico.sentence_transformer,
         )
 
+        cfg_res_dir = cfg.res_dir
+
         # quem já está em cache (lido ANTES de rodar)
         caminho_cache = os.path.join(
             cfg.meta_dir, cfg.captions_dir,
@@ -510,15 +511,25 @@ def processar_pedido(
                         except (json.JSONDecodeError, KeyError):
                             pass
 
-        apagados = _limpar_caches(cfg, collection) if pedido.force else []
+        # ★ force: limpa APENAS as cenas desta requisição. Nunca automático.
+        apagados = _limpar_caches(cfg, collection, nomes_base) if pedido.force else {}
         if apagados:
-            ja_em_cache = set()
+            # as cenas limpas deixam de contar como "já em cache"
+            ja_em_cache -= set(nomes_base)
 
         caminho_anno = _escrever_annos(cfg, collection, nomes_base)
 
         log.info("[job %s] build() em %s: %d cena(s), collection=%s",
                  job_id[:8], diretorio, len(nomes_base), collection)
         tree_meta = build(cfg, modelos.como_dict()) or {}
+
+        # ★ FUSÃO — logo após o build, DENTRO do laço.
+        #
+        # Com construct_name="", todos os grupos escrevem no mesmo exp_dir.
+        # Se a fusão rodasse só no fim, o grupo 2 já teria sobrescrito o
+        # proposals.json do grupo 1 — e a requisição seguinte apagaria tudo.
+        fusao = persistencia.fundir_proposals(
+            getattr(cfg, "exp_dir", ""), cfg.proposals_file)
 
         # --- PASSO 6: transformar a saída ---------------------------------- #
         exp_dir = getattr(cfg, "exp_dir", None)
@@ -550,6 +561,20 @@ def processar_pedido(
                     proposta.get("keys", []), legenda, modelos.sentence_transformer),
                 status="success",
             )
+            # tudo o que o proposal traz, para o histórico persistido:
+            # ranking completo, contagens e avisos
+            diagnostico_por_cena[scene_id] = {
+                "vid_name": nb,
+                "collection": collection,
+                "video_root": diretorio,
+                "ranking": proposta.get("ranking"),
+                "rank_by": proposta.get("rank_by"),
+                "n_raw": proposta.get("n_raw"),
+                "n_distinct": proposta.get("n_distinct"),
+                "keys_brutas": proposta.get("keys"),
+                "warning": proposta.get("warning"),
+                "estava_em_cache": nb in ja_em_cache,
+            }
 
         diagnostico_grupos.append({
             "diretorio": diretorio,
@@ -559,6 +584,7 @@ def processar_pedido(
             "cache_limpo": bool(apagados),
             "annos": caminho_anno,
             "exp_dir": exp_dir,
+            "merge": fusao,
         })
 
     # --- resposta ---------------------------------------------------------- #
@@ -566,9 +592,32 @@ def processar_pedido(
     resultado += falhas
     ok = sum(1 for r in resultado if r.status == "success")
 
+    # ★ PERSISTIR — o histórico durável, nos dois formatos.
+    #
+    # Granularidade: por GRUPO, não por cena. O build() só retorna depois das
+    # 7 etapas, então é aqui o primeiro momento em que há resposta. Se o
+    # processo cair antes, o trabalho caro NÃO se perde — as legendas já estão
+    # no cache de meta/, e um reprocessamento pula tudo que foi feito.
+    persistencia_info = {}
+    program_id = next((i.program_id for i in itens if i.program_id), None)
+    if program_id and cfg_res_dir:
+        try:
+            persistencia_info = persistencia.gravar_respostas(
+                res_dir=cfg_res_dir,
+                program_id=program_id,
+                respostas=[r.model_dump(exclude_none=True) for r in resultado],
+                extras_por_cena=diagnostico_por_cena,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Falhar ao persistir NÃO pode derrubar a resposta: o cliente já
+            # tem o resultado em mãos. Registramos e seguimos.
+            log.exception("falha ao persistir as respostas de %s", program_id)
+            persistencia_info = {"erro": f"{type(exc).__name__}: {exc}"}
+
     return {
         "items": [r.model_dump(exclude_none=True) for r in resultado],
         "summary": {"total": len(itens), "ok": ok, "errors": len(resultado) - ok},
         "groups": diagnostico_grupos,
+        "persisted": persistencia_info,
         "seconds": round(time.perf_counter() - t0, 2),
     }
