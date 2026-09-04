@@ -200,17 +200,17 @@ class ModelosResidentes:
         está mesmo residente?". Sem isso, `pronto: true` só diz que os objetos
         existem, não que ocupam memória de GPU.
         """
-        info = {
-            "pronto": self.pronto,
+        return {
+            "ready": self.pronto,
             "device": self.device,
-            "modelos": [
-                {"nome": c.nome, "id": c.identificador, "segundos": round(c.segundos, 2)}
+            "models": [
+                {"name": c.nome, "id": c.identificador,
+                 "load_seconds": round(c.segundos, 2)}
                 for c in self.cargas
             ],
-            "glove_carregado": False,
+            "glove_loaded": False,
             "gpu": self.estado_da_gpu(),
         }
-        return info
 
     @staticmethod
     def estado_da_gpu() -> dict:
@@ -223,25 +223,27 @@ class ModelosResidentes:
         try:
             import torch
         except ImportError:
-            return {"disponivel": False, "motivo": "torch não instalado"}
+            return {"available": False, "reason": "torch not installed"}
 
         if not torch.cuda.is_available():
             return {
-                "disponivel": False,
-                "motivo": "torch.cuda.is_available() == False",
-                "dica": "build de torch sem CUDA, ou CUDA_VISIBLE_DEVICES vazio",
+                "available": False,
+                "reason": "torch.cuda.is_available() == False",
+                "hint": "CPU-only torch build, or empty CUDA_VISIBLE_DEVICES",
             }
 
         try:
             indice = torch.cuda.current_device()
             return {
-                "disponivel": True,
-                "dispositivos": torch.cuda.device_count(),
-                "indice_atual": indice,
-                "nome": torch.cuda.get_device_name(indice),
-                "alocado_mb": round(torch.cuda.memory_allocated(indice) / 1024**2, 1),
-                "reservado_mb": round(torch.cuda.memory_reserved(indice) / 1024**2, 1),
+                "available": True,
+                "device_count": torch.cuda.device_count(),
+                "current_index": indice,
+                "name": torch.cuda.get_device_name(indice),
+                # ★ allocated_mb > 0 e ESTÁVEL entre chamadas = modelos
+                #   residentes na GPU. Se for 0 com ready:true, estão na CPU.
+                "allocated_mb": round(torch.cuda.memory_allocated(indice) / 1024**2, 1),
+                "reserved_mb": round(torch.cuda.memory_reserved(indice) / 1024**2, 1),
                 "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
             }
         except Exception as exc:  # noqa: BLE001 — diagnóstico não pode derrubar
-            return {"disponivel": True, "erro": f"{type(exc).__name__}: {exc}"}
+            return {"available": True, "error": f"{type(exc).__name__}: {exc}"}

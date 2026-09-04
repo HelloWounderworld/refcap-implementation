@@ -7,9 +7,10 @@ O QUE ESTE ARQUIVO JÁ FAZ
                               +-- startup: carrega os 3 modelos UMA vez
                               |            (estado permanente)
                               |
-                              +-- POST /jobs  -> cria job, devolve job_id
+                              +-- POST /caption       -> uma cena
                               |                  (executa em fila serializada)
-                              +-- GET  /jobs/{id} -> consulta o estado
+                              +-- POST /caption/batch -> lote
+                              +-- GET  /caption/{program_id} -> lê o persistido
                               +-- GET  /health    -> os modelos estão prontos?
                               |
                               +-- shutdown: libera os modelos
@@ -43,6 +44,7 @@ from pydantic import BaseModel, Field
 
 from carregador import ModelosResidentes
 from jobs import EstadoJob, Job, RegistroDeJobs
+import persistencia
 from processamento import (MODEL_NAME_PADRAO, MODEL_VERSION_PADRAO, CaptionRequest,
                            ErrorCode, processar_pedido, ranquear_keywords)
 from ponte_refcap import RAIZ_REFCAP, montar_cfg, preparar_sys_path
@@ -176,103 +178,155 @@ def processar_job(job: Job) -> dict:
 # --------------------------------------------------------------------------- #
 # Rotas
 # --------------------------------------------------------------------------- #
-@app.get("/health", summary="Os modelos estão residentes?")
+@app.get("/health", summary="Service and model status")
 async def health() -> dict:
+    """Estado do serviço e dos modelos residentes.
+
+    ★ O campo que responde "os modelos estão MESMO na GPU?" é
+      `models.gpu.allocated_mb`. `models.ready` só diz que os objetos existem.
+    """
     return {
-        "servico": "ok",
+        "status": "ok",
+        "service": "caption-api",
         "refcap_root": str(RAIZ_REFCAP),
-        "modelos": modelos.diagnostico(),
-        "jobs_na_fila": registro.quantos_na_fila(),
+        "models": modelos.diagnostico(),
+        "queued_jobs": registro.quantos_na_fila(),
     }
 
 
-@app.post("/jobs", summary="Processa um job e devolve o resultado")
-async def criar_job(pedido: CaptionRequest, tarefas: BackgroundTasks):
-    """Por padrão AGUARDA o processamento e devolve o resultado completo.
+# ★ Acima deste número de cenas, a API muda sozinha para assíncrono.
+#
+# O gargalo não é processamento — é a CONEXÃO HTTP. Uma cena de 1-5s leva
+# ~1-3s, então 30 cenas já se aproximam do timeout típico de proxy (60s).
+# Acima disso a conexão cairia e o cliente perderia a resposta — embora o
+# processamento continuasse e o resultado ficasse persistido.
+LIMIAR_ASSINCRONO = int(os.environ.get("REFCAP_LIMIAR_ASSINCRONO", "30"))
 
-    ★ MODO PADRÃO (síncrono) — `"assincrono"` ausente ou `false`
-        A conexão fica aberta até o job terminar, e a resposta traz:
 
-            {"state": "concluded",
-             "summary": {"total": N, "ok": N, "errors": 0},
-             "items": [ {scene_id, scene_caption_en, keywords_en, ...} ],
-             "groups": [...], "seconds": 12.3}
+def _programa_do_pedido(pedido: CaptionRequest) -> str | None:
+    """O `program_id` da requisição — governa collection, caches e response."""
+    for item in pedido.como_itens():
+        if item.program_id:
+            return item.program_id
+    return None
 
-        ⚠️ A fila continua serializando: se outro job estiver rodando, este
-        espera a vez. Com lotes grandes, a conexão pode cair por timeout de
-        proxy — nesse caso use o modo assíncrono.
 
-    MODO ASSÍNCRONO — `"assincrono": true`
-        Devolve 202 + `job_id` na hora e processa em segundo plano. Consulte
-        por `GET /jobs/{id}`, ou informe `callback_url` para ser avisado.
+async def _executar(pedido: CaptionRequest, tarefas: BackgroundTasks):
+    """Corpo comum de POST /caption e POST /caption/batch.
 
-    Em AMBOS os modos o job fica registrado e pode ser reconsultado depois.
+    As duas rotas existem para deixar a intenção explícita no contrato, mas o
+    processamento é o mesmo: `como_itens()` normaliza cena única e lote numa
+    lista, e daí para frente não há dois caminhos.
     """
-    # A guarda NÃO pode depender de `carregar_no_startup`: se o serviço subiu
-    # com REFCAP_CARREGAR_MODELOS=0, os modelos não existem e o build() não tem
-    # como rodar. Sem esta checagem, o erro apareceria só lá dentro, como 500.
     if not modelos.pronto:
         raise HTTPException(503, {
-            "erro": "modelos não carregados",
-            "carregar_no_startup": ConfigServico.carregar_no_startup,
-            "dica": ("suba o serviço sem REFCAP_CARREGAR_MODELOS=0 para carregar "
-                     "os modelos no startup"),
+            "error_code": ErrorCode.INTERNAL_ERROR,
+            "message": "models not loaded",
+            "hint": ("start the service without REFCAP_CARREGAR_MODELOS=0 "
+                     "so the models load at startup"),
         })
 
+    itens = pedido.como_itens()
+    if not itens:
+        raise HTTPException(400, {
+            "error_code": ErrorCode.INVALID_REQUEST,
+            "message": ("empty request: provide `scene_id` + `scene_video_path`, "
+                        "or `items`"),
+        })
+
+    program_id = _programa_do_pedido(pedido)
     job = registro.criar(entrada=pedido.model_dump(), callback_url=pedido.callback_url)
 
-    # --- modo assíncrono: devolve na hora ------------------------------- #
-    if pedido.assincrono:
+    # --- assíncrono: automático acima do limiar, ou forçado --------------- #
+    if len(itens) > LIMIAR_ASSINCRONO or pedido.assincrono:
         tarefas.add_task(registro.executar, job, processar_job)
-        return JSONResponse(
-            status_code=202,
-            content=RespostaAssincrona(
-                job_id=job.id,
-                estado=job.estado.value,
-                consultar_em=f"/jobs/{job.id}",
-            ).model_dump(),
-        )
+        return JSONResponse(status_code=202, content={
+            "state": "accepted",
+            "program_id": program_id,
+            "scenes": [i.scene_id for i in itens],
+            "total": len(itens),
+            "check_at": f"/caption/{program_id}" if program_id else None,
+            "reason": ("above the synchronous threshold"
+                       if len(itens) > LIMIAR_ASSINCRONO else "requested"),
+        })
 
-    # --- modo padrão: AGUARDA e devolve o resultado --------------------- #
-    # `executar` já roda a tarefa numa thread (asyncio.to_thread) e sob a trava
-    # da fila — então aguardar aqui NÃO bloqueia o loop de eventos: o /health e
-    # o GET /jobs continuam respondendo durante o processamento.
+    # --- síncrono: aguarda e devolve o resultado -------------------------- #
+    # `executar` roda a tarefa em asyncio.to_thread, sob a trava da fila —
+    # aguardar aqui NÃO bloqueia o loop: /health e GET /caption continuam
+    # respondendo durante o processamento.
     await registro.executar(job, processar_job)
 
     resultado = job.resultado or {}
     corpo = {
-        # `job_id` NÃO entra: o rastreio acordado é por program_id + scene_id,
-        # e o resultado fica persistido em results/response/{program_id}/.
         "state": job.estado.value,
-        **(resultado if isinstance(resultado, dict) else {"resultado": resultado}),
+        "program_id": program_id,
+        **(resultado if isinstance(resultado, dict) else {"result": resultado}),
     }
     if job.erro:
-        corpo["message"] = job.erro
         corpo["error_code"] = ErrorCode.INTERNAL_ERROR
-    # 200 quando concluiu; 500 quando o job falhou por inteiro (falhas de cena
-    # individual vêm como status:"error" dentro de items, com HTTP 200).
+        corpo["message"] = job.erro
     return JSONResponse(
         status_code=200 if job.estado == EstadoJob.CONCLUIDO else 500,
         content=corpo,
     )
 
 
-@app.get("/jobs/{job_id}", summary="Consulta o estado de um job")
-async def consultar_job(job_id: str) -> dict:
-    job = registro.obter(job_id)
-    if job is None:
-        raise HTTPException(404, f"job {job_id} não encontrado")
-    return job.como_dict()
+@app.post("/caption", summary="Caption a single scene")
+async def caption(pedido: CaptionRequest, tarefas: BackgroundTasks):
+    """Legenda UMA cena e devolve o resultado.
+
+        {"scene_id": "...", "video_id": "...", "program_id": "...",
+         "scene_video_path": "/path/{program_id}/{video_id}/{scene_id}.mp4"}
+
+    Devolve o contrato com `scene_caption_en`, `keywords_en` e `status`.
+    O resultado também fica persistido — consulte por GET /caption/{program_id}.
+    """
+    return await _executar(pedido, tarefas)
 
 
-@app.get("/jobs", summary="Lista os jobs recentes")
-async def listar_jobs(limite: int = 50) -> dict:
-    return {"jobs": registro.listar(limite)}
+@app.post("/caption/batch", summary="Caption a batch of scenes")
+async def caption_batch(pedido: CaptionRequest, tarefas: BackgroundTasks):
+    """Legenda VÁRIAS cenas.
 
-# --------------------------------------------------------------------------- #
-# ★ ROTA DE TESTE — construct de ponta a ponta com UM vídeo
-# --------------------------------------------------------------------------- #
-@app.get("/teste/construct", summary="[TESTE] roda o construct num vídeo só")
+        {"items": [ {scene_id, video_id, program_id, scene_video_path}, ... ]}
+
+    Cenas de `video_id` diferentes ficam em diretórios diferentes — a API
+    agrupa por diretório e roda um `build()` por grupo.
+
+    ★ Acima de LIMIAR_ASSINCRONO cenas, devolve 202 e processa em segundo
+      plano; nada se perde, o resultado fica persistido.
+    """
+    return await _executar(pedido, tarefas)
+
+
+@app.get("/caption/{program_id}", summary="Read persisted captions of a program")
+async def caption_do_programa(
+    program_id: str,
+    scene_id: list[str] | None = Query(
+        default=None,
+        description="Filtra por uma ou várias cenas. Omitido, devolve todas.",
+    ),
+) -> dict:
+    """Lê o que foi persistido, sem reprocessar nada.
+
+        GET /caption/prog1                              todas
+        GET /caption/prog1?scene_id=a                   uma
+        GET /caption/prog1?scene_id=a&scene_id=b        várias
+
+    Programa nunca processado devolve 200 com lista vazia — não 404. Assim o
+    cliente trata um caso só, em vez de distinguir "não existe" de "vazio".
+    """
+    cfg = montar_cfg()
+    itens = persistencia.ler_respostas(cfg.res_dir, program_id, scene_id)
+    ok = sum(1 for i in itens if i.get("status") == "success")
+    return {
+        "program_id": program_id,
+        "items": itens,
+        "summary": {"total": len(itens), "ok": ok, "errors": len(itens) - ok},
+    }
+
+
+@app.get("/diagnostics/caption", summary="[DIAGNOSTICS] full pipeline on a single video")
 def teste_construct(
     video: str,
     collection: str = COLLECTION_DIAGNOSTICO,
@@ -294,7 +348,7 @@ def teste_construct(
                       forçar o processamento de verdade
 
     ⚠️ É SÍNCRONA de propósito: você vê o resultado direto no navegador.
-       Para produção use POST /jobs, que é assíncrono e serializado.
+       Para produção use POST /caption ou /caption/batch.
 
     EXEMPLO
         GET /teste/construct?video=cena_001.mp4
@@ -424,7 +478,7 @@ def teste_construct(
                 "warning": p0.get("warning"),
             }
 
-    # ★ a resposta no FORMATO ACORDADO (o mesmo do POST /jobs)
+    # ★ a resposta no FORMATO ACORDADO (o mesmo do POST /caption)
     # `scene_id` aqui é o nome-base do arquivo, já que a rota de teste não
     # recebe um scene_id próprio.
     p0 = (ranking or {})
@@ -447,7 +501,7 @@ def teste_construct(
     }
 
     return {
-        # ★ O CONTRATO DE SAÍDA no topo, idêntico ao do POST /jobs e ao de cada
+        # ★ O CONTRATO DE SAÍDA no topo, idêntico ao do POST /caption e ao de cada
         # item da rota de lote. Assim as três produzem o mesmo formato.
         **resposta_cena,
         "ok": True,
@@ -470,7 +524,7 @@ def teste_construct(
 # --------------------------------------------------------------------------- #
 # ★ ROTA DE TESTE EM LOTE — um diretório inteiro de .mp4
 # --------------------------------------------------------------------------- #
-@app.get("/teste/construct-lote", summary="[TESTE] roda o construct num DIRETÓRIO de vídeos")
+@app.get("/diagnostics/caption-batch", summary="[DIAGNOSTICS] full pipeline on a directory")
 def teste_construct_lote(
     diretorio: str,
     collection: str = COLLECTION_DIAGNOSTICO,
@@ -515,7 +569,7 @@ def teste_construct_lote(
         extensoes   filtro, separado por vírgula (ex.: ".mp4,.avi")
 
     ⚠️ É SÍNCRONA. Um diretório grande pode estourar o timeout do HTTP.
-       Use `limite` para testar antes, e o POST /jobs para produção.
+       Use `limite` para testar antes, e POST /caption/batch para produção.
 
     EXEMPLOS
         GET /teste/construct-lote?diretorio=/dados/minhas_cenas
@@ -659,7 +713,7 @@ def teste_construct_lote(
         p0 = (dados.get("proposals") or [{}])[0]
         legenda = p0.get("cap")
 
-        # --- o formato acordado, idêntico ao do POST /jobs --- #
+        # --- o formato acordado, idêntico ao do POST /caption --- #
         item = {
             "scene_id": nb,
             "scene_caption_en": legenda,
@@ -695,7 +749,7 @@ def teste_construct_lote(
 
     return {
         "ok": True,
-        # ★ o contrato de saída: uma entrada por cena, igual à do POST /jobs
+        # ★ o contrato de saída: uma entrada por cena, igual à do POST /caption
         "items": itens_resposta,
         "diretorio": diretorio,
         "seconds": round(time.perf_counter() - t_inicio, 2),
