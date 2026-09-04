@@ -43,8 +43,8 @@ from pydantic import BaseModel, Field
 
 from carregador import ModelosResidentes
 from jobs import EstadoJob, Job, RegistroDeJobs
-from processamento import (MODEL_NAME_PADRAO, MODEL_VERSION_PADRAO,
-                           PedidoDeJob, processar_pedido, ranquear_keywords)
+from processamento import (MODEL_NAME_PADRAO, MODEL_VERSION_PADRAO, CaptionRequest,
+                           ErrorCode, processar_pedido, ranquear_keywords)
 from ponte_refcap import RAIZ_REFCAP, montar_cfg, preparar_sys_path
 
 logging.basicConfig(
@@ -158,7 +158,7 @@ def processar_job(job: Job) -> dict:
     Os modelos JÁ ESTÃO CARREGADOS: `modelos.como_dict()` devolve o dicionário
     no formato que o `build()` do RefCap espera, e ele NÃO recarrega nada.
     """
-    pedido = PedidoDeJob(**job.entrada)
+    pedido = CaptionRequest(**job.entrada)
     return processar_pedido(
         pedido=pedido,
         job_id=job.id,
@@ -182,16 +182,16 @@ async def health() -> dict:
 
 
 @app.post("/jobs", summary="Processa um job e devolve o resultado")
-async def criar_job(pedido: PedidoDeJob, tarefas: BackgroundTasks):
+async def criar_job(pedido: CaptionRequest, tarefas: BackgroundTasks):
     """Por padrão AGUARDA o processamento e devolve o resultado completo.
 
     ★ MODO PADRÃO (síncrono) — `"assincrono"` ausente ou `false`
         A conexão fica aberta até o job terminar, e a resposta traz:
 
-            {"job_id": ..., "estado": "concluido",
-             "resumo": {"total": N, "ok": N, "erros": 0},
+            {"state": "concluded",
+             "summary": {"total": N, "ok": N, "errors": 0},
              "items": [ {scene_id, scene_caption_en, keywords_en, ...} ],
-             "grupos": [...], "segundos": 12.3}
+             "groups": [...], "seconds": 12.3}
 
         ⚠️ A fila continua serializando: se outro job estiver rodando, este
         espera a vez. Com lotes grandes, a conexão pode cair por timeout de
@@ -236,12 +236,14 @@ async def criar_job(pedido: PedidoDeJob, tarefas: BackgroundTasks):
 
     resultado = job.resultado or {}
     corpo = {
-        "job_id": job.id,
-        "estado": job.estado.value,
+        # `job_id` NÃO entra: o rastreio acordado é por program_id + scene_id,
+        # e o resultado fica persistido em results/response/{program_id}/.
+        "state": job.estado.value,
         **(resultado if isinstance(resultado, dict) else {"resultado": resultado}),
     }
     if job.erro:
-        corpo["erro"] = job.erro
+        corpo["message"] = job.erro
+        corpo["error_code"] = ErrorCode.INTERNAL_ERROR
     # 200 quando concluiu; 500 quando o job falhou por inteiro (falhas de cena
     # individual vêm como status:"error" dentro de items, com HTTP 200).
     return JSONResponse(
@@ -270,7 +272,7 @@ def teste_construct(
     video: str,
     collection: str = "teste_api",
     proposal_generator: str = "whole",
-    limpar_cache: bool = True,
+    force: bool = True,
 ) -> dict:
     """Executa o pipeline COMPLETO num único vídeo, com os modelos residentes.
 
@@ -283,7 +285,7 @@ def teste_construct(
         video     nome do arquivo em `video_root` (ex.: "cena_001.mp4")
         collection  isola os artefatos deste teste (default: "teste_api")
         proposal_generator  "whole" (o seu) ou "qm" (o original)
-        limpar_cache  apaga os caches deste `collection` antes de rodar, para
+        force  apaga os caches deste `collection` antes de rodar, para
                       forçar o processamento de verdade
 
     ⚠️ É SÍNCRONA de propósito: você vê o resultado direto no navegador.
@@ -340,7 +342,7 @@ def teste_construct(
     # Os 3 artefatos de meta_dir são chaveados por `collection` e têm lógica de
     # PULAR vídeo já processado. Sem limpar, uma segunda chamada reaproveitaria
     # o cache e o BLIP não rodaria — o teste passaria sem testar.
-    if limpar_cache:
+    if force:
         alvos = [
             os.path.join(cfg_base.meta_dir, cfg_base.captions_dir,
                          f"{collection}_{cfg_base.caption_generator}.jsonl"),
@@ -442,7 +444,7 @@ def teste_construct(
         **resposta_cena,
         "ok": True,
         "video": video,
-        "segundos": round(time.perf_counter() - t_inicio, 2),
+        "seconds": round(time.perf_counter() - t_inicio, 2),
         "passos": passos,
         "exp_dir": exp_dir,
         "proposals_json": caminho_props,
@@ -465,7 +467,7 @@ def teste_construct_lote(
     diretorio: str,
     collection: str = "teste_lote",
     proposal_generator: str = "whole",
-    limpar_cache: bool = False,
+    force: bool = False,
     limite: int = 0,
     extensoes: str = ".mp4",
 ) -> dict:
@@ -482,7 +484,7 @@ def teste_construct_lote(
         `bash scripts/construct.sh`.
 
     ★ O CACHE (a diferença de default que importa)
-        `limpar_cache=False` por padrão, ao contrário da rota de um vídeo.
+        `force=False` por padrão, ao contrário da rota de um vídeo.
         Num lote, limpar seria destrutivo: você perderia o trabalho já feito
         de todos os vídeos daquele `collection`.
 
@@ -498,7 +500,7 @@ def teste_construct_lote(
                     execução)
         collection  isola os artefatos e o cache deste lote
         proposal_generator  "whole" (o seu) ou "qm" (o original)
-        limpar_cache  se True, apaga os caches deste `collection` antes de
+        force  se True, apaga os caches deste `collection` antes de
                       rodar, forçando reprocessamento de tudo
         limite      processa no máximo N vídeos (0 = todos); útil para um teste
                     rápido antes de rodar o conjunto inteiro
@@ -510,7 +512,7 @@ def teste_construct_lote(
     EXEMPLOS
         GET /teste/construct-lote?diretorio=/dados/minhas_cenas
         GET /teste/construct-lote?diretorio=/dados/cenas&limite=5
-        GET /teste/construct-lote?diretorio=/dados/cenas&limpar_cache=true
+        GET /teste/construct-lote?diretorio=/dados/cenas&force=true
     """
     import json
     import time
@@ -581,7 +583,7 @@ def teste_construct_lote(
 
     # --- 4. limpar o cache (só se pedido) --------------------------------- #
     apagados: list[str] = []
-    if limpar_cache:
+    if force:
         alvos = [
             caminho_cache,
             os.path.join(cfg.meta_dir, cfg.raw_capframe_scores_dir,
@@ -688,8 +690,8 @@ def teste_construct_lote(
         # ★ o contrato de saída: uma entrada por cena, igual à do POST /jobs
         "items": itens_resposta,
         "diretorio": diretorio,
-        "segundos": round(time.perf_counter() - t_inicio, 2),
-        "resumo": {
+        "seconds": round(time.perf_counter() - t_inicio, 2),
+        "summary": {
             "encontrados_no_diretorio": total_encontrado,
             "selecionados": len(nomes_base),
             "no_tree_meta": processados,
@@ -699,7 +701,7 @@ def teste_construct_lote(
         },
         "cache": {
             "arquivo": caminho_cache,
-            "limpo": limpar_cache,
+            "limpo": force,
             "apagados": apagados,
         },
         "passos": passos,

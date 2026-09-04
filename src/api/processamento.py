@@ -49,10 +49,29 @@ MODEL_NAME_PADRAO = os.environ.get("REFCAP_MODEL_NAME", "refcap")
 MODEL_VERSION_PADRAO = os.environ.get("REFCAP_MODEL_VERSION", "v1")
 
 
+class ErrorCode:
+    """Códigos de erro do contrato, por cena.
+
+    Cada um mapeia uma causa distinta — a ideia é que o consumidor consiga
+    decidir o que fazer sem ler a mensagem em texto livre.
+    """
+
+    #: payload malformado, campo obrigatório faltando, pedido vazio
+    INVALID_REQUEST = "INVALID_REQUEST"
+    #: o `scene_video_path` não existe no disco
+    FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    #: o caminho existe, mas não há vídeo com aquele `scene_id`
+    SCENE_NOT_FOUND = "SCENE_NOT_FOUND"
+    #: o pipeline rodou e não produziu legenda (vídeo < 1s, decodificação falhou)
+    CAPTION_FAILED = "CAPTION_FAILED"
+    #: exceção inesperada em qualquer ponto
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
 # --------------------------------------------------------------------------- #
 # Contratos
 # --------------------------------------------------------------------------- #
-class ItemDeCena(BaseModel):
+class SceneItem(BaseModel):
     """Uma cena a legendar."""
     scene_id: str
     video_id: str | None = None
@@ -64,7 +83,7 @@ class ItemDeCena(BaseModel):
     )
 
 
-class PedidoDeJob(BaseModel):
+class CaptionRequest(BaseModel):
     """Aceita as DUAS formas acordadas, sem endpoint separado.
 
     Cena única:
@@ -81,25 +100,35 @@ class PedidoDeJob(BaseModel):
     scene_video_path: str | None = None
 
     # --- forma "lote" ---
-    items: list[ItemDeCena] | None = None
+    items: list[SceneItem] | None = None
 
     # --- controles opcionais ---
     callback_url: str | None = None
     assincrono: bool = Field(
         default=False,
-        description="Se True, devolve 202 + job_id na hora e processa em segundo "
-                    "plano (consulte por GET /jobs/{id}). O default False AGUARDA "
-                    "o processamento e devolve o resultado completo.",
+        description="Override manual do modo. Acima do limiar de itens a API já "
+                    "muda sozinha para assíncrono; este campo força um dos dois.",
     )
     proposal_generator: str = "whole"
-    limpar_cache: bool = False
-    collection: str | None = Field(
-        default=None,
-        description="Isola artefatos e cache. Quando omitido, usa o program_id "
-                    "— cenas do mesmo programa compartilham cache.",
+    force: bool = Field(
+        default=False,
+        description="Reprocessa as cenas desta requisição, limpando o cache "
+                    "delas (legendas, features e scores). NUNCA é automático — "
+                    "só quando explicitamente pedido.",
     )
 
-    def como_itens(self) -> list[ItemDeCena]:
+    # ⚠️ `collection` foi REMOVIDO do contrato de propósito.
+    #
+    # Ele agora é DERIVADO do `program_id`: um só identificador governa os
+    # cinco caminhos do RefCap (annos, os 3 caches de meta/, e results/).
+    # Aceitar um override aqui quebraria o isolamento entre programas — dois
+    # programas com o mesmo `collection` compartilhariam cache, e o segundo
+    # receberia as legendas do primeiro, em silêncio.
+    #
+    # As rotas de diagnóstico são a única exceção: elas usam um `collection`
+    # próprio ("diagnostics") para não contaminar dados reais.
+
+    def como_itens(self) -> list[SceneItem]:
         """Normaliza as duas formas numa lista única.
 
         Cena única vira um lote de um. Todo o resto do código trata só listas —
@@ -108,7 +137,7 @@ class PedidoDeJob(BaseModel):
         if self.items:
             return list(self.items)
         if self.scene_id and self.scene_video_path:
-            return [ItemDeCena(
+            return [SceneItem(
                 scene_id=self.scene_id,
                 video_id=self.video_id,
                 program_id=self.program_id,
@@ -117,25 +146,49 @@ class PedidoDeJob(BaseModel):
         return []
 
 
-class PalavraChave(BaseModel):
+class Keyword(BaseModel):
     token: str
     weight: float
 
 
-class RespostaDeCena(BaseModel):
+class SceneResponse(BaseModel):
+    """O contrato de saída, por cena. Idêntico nas três rotas."""
+
     scene_id: str
     scene_caption_en: str | None = None
-    keywords_en: list[PalavraChave] = Field(default_factory=list)
+    keywords_en: list[Keyword] = Field(default_factory=list)
     model_name: str = MODEL_NAME_PADRAO
     model_version: str = MODEL_VERSION_PADRAO
     status: str = "success"
-    erro: str | None = None
+
+    # Preenchidos apenas quando `status == "error"`.
+    error_code: str | None = None
+    message: str | None = None
+
+    @classmethod
+    def falha(cls, scene_id: str, error_code: str, message: str) -> "SceneResponse":
+        """Atalho para montar uma resposta de erro sem repetir os campos."""
+        return cls(scene_id=scene_id, status="error",
+                   error_code=error_code, message=message)
 
 
 # --------------------------------------------------------------------------- #
 # Resolução de caminho
 # --------------------------------------------------------------------------- #
-def resolver_cena(item: ItemDeCena) -> tuple[str, str, str]:
+class CenaNaoResolvida(Exception):
+    """Carrega o código de erro junto com a mensagem.
+
+    Sem isto, quem captura teria de inferir o código a partir do texto — o que
+    é frágil e quebra quando a mensagem muda.
+    """
+
+    def __init__(self, error_code: str, message: str) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+
+
+def resolver_cena(item: SceneItem) -> tuple[str, str, str]:
     """Descobre o diretório e o arquivo da cena.
 
     O `scene_video_path` acordado é `/caminho/{program_id}/{video_id}/{scene_id}`
@@ -174,14 +227,24 @@ def resolver_cena(item: ItemDeCena) -> tuple[str, str, str]:
         )
         if len(videos) == 1:
             return str(caminho), videos[0].name, videos[0].stem
-        raise FileNotFoundError(
+        raise CenaNaoResolvida(
+            ErrorCode.SCENE_NOT_FOUND,
             f"diretório {caminho} tem {len(videos)} vídeo(s); "
-            f"nenhum chamado '{item.scene_id}'"
+            f"nenhum chamado '{item.scene_id}'",
         )
 
-    raise FileNotFoundError(
+    # A distinção entre os dois códigos importa para o consumidor:
+    #   FILE_NOT_FOUND  -> o caminho não existe de todo
+    #   SCENE_NOT_FOUND -> o caminho existe, mas não há vídeo com esse scene_id
+    if not caminho.exists():
+        raise CenaNaoResolvida(
+            ErrorCode.FILE_NOT_FOUND,
+            f"caminho não encontrado: {item.scene_video_path}",
+        )
+    raise CenaNaoResolvida(
+        ErrorCode.SCENE_NOT_FOUND,
         f"não encontrei a cena '{item.scene_id}' em {item.scene_video_path} "
-        f"(tentei como arquivo, com as extensões {EXTENSOES_VIDEO}, e como diretório)"
+        f"(tentei como arquivo, com as extensões {EXTENSOES_VIDEO}, e como diretório)",
     )
 
 
@@ -196,65 +259,65 @@ def ranquear_keywords(
     caption: str,
     modelo_texto=None,
     maximo: int = 10,
-) -> list[PalavraChave]:
-    """Ordena as palavras-chave por aderência à legenda escolhida.
+) -> list[Keyword]:
+    """Devolve as palavras-chave CONTIDAS na legenda, com peso 1.0.
 
-    POR QUE ISTO É NECESSÁRIO
+    POR QUE ESTE FILTRO É NECESSÁRIO
         O campo `keys` do proposal traz substantivos e verbos de TODAS as
         legendas de TODOS os frames da cena (WholePropGener._coletar_keywords).
-        Muitas não têm relação com a legenda que venceu o ranking. Este passo
-        filtra e ordena pela relação com ela.
+        Muitas não têm relação com a legenda que venceu o ranking. Aqui
+        mantemos apenas as que de fato aparecem nela.
 
-    COMO O PESO É CALCULADO
-        Combina dois sinais:
+    ★ O PESO ESTÁ FIXO EM 1.0 — DE PROPÓSITO
+        A ponderação anterior (ver abaixo) foi SUSPENSA até se decidir se o
+        peso é sequer necessário para o retrieval, que é feito por outra API
+        usando GloVe. Enquanto isso, todas as keywords entregues valem o mesmo.
 
-        (a) PRESENÇA LITERAL — a palavra aparece na legenda?
-            Sinal forte e inequívoco. Peso base 1.0.
+        Como só entram palavras literalmente presentes na legenda, 1.0 é
+        coerente: não há gradação a expressar.
+
+    ─────────────────────────────────────────────────────────────────────────
+    O CÁLCULO SUSPENSO, para quando a decisão sobre o GloVe for tomada:
+
+        weight = 0.6 × presença_literal + 0.4 × similaridade_semântica
+
+        (a) PRESENÇA LITERAL — a palavra aparece na legenda? Peso base 1.0.
 
         (b) SIMILARIDADE SEMÂNTICA — cosseno entre o embedding da palavra e o
-            da legenda, no espaço do sentence-transformer (JÁ CARREGADO, então
-            não custa carregamento novo). Captura relação sem repetição literal
-            ("cooking" x "a woman preparing food").
+            da legenda, no espaço do sentence-transformer. Captava relação sem
+            repetição literal ("cooking" × "a woman preparing food").
 
-        O peso final é `(a) * 0.6 + (b) * 0.4`, normalizado em [0, 1].
+        POR QUE FOI SUSPENSO, além da dúvida sobre a necessidade:
+          - o `paraphrase-distilroberta-v2` foi treinado para comparar
+            SENTENÇAS, não palavras isoladas — usá-lo assim é operar fora do
+            domínio de treino;
+          - os pesos 0.6/0.4 nunca foram calibrados: foram escolhidos por
+            julgamento, sem dados anotados.
 
-    ⚠️ LIMITE DECLARADO
-        Esta ponderação é uma DECISÃO DE PROJETO, não um resultado medido. Não
-        há referência para dizer qual peso é "certo". Comparar um token isolado
-        a uma frase via embeddings é ruidoso — é por isso que a presença
-        literal domina a fórmula. Se depois você tiver exemplos anotados, os
-        pesos 0.6/0.4 são o primeiro lugar a calibrar.
+        Alternativas a avaliar quando o assunto voltar:
+          1. BLIP-ITM contra o FRAME — "quão bem esta palavra descreve o que
+             se vê". Mais ancorado no vídeo; exige passar os frames adiante.
+          2. Um modelo com vetores de PALAVRA (spaCy _md/_lg, ou o próprio
+             GloVe que o retrieval já usa).
+          3. Presença literal + frequência entre as legendas dos frames.
+
+        O parâmetro `modelo_texto` foi MANTIDO na assinatura de propósito: o
+        chamador continua passando o sentence-transformer, e religar o cálculo
+        não exige mudar quem chama.
+    ─────────────────────────────────────────────────────────────────────────
     """
     if not keys or not caption:
         return []
 
-    unicas = list(dict.fromkeys(k.strip().lower() for k in keys if k and k.strip()))
-    if not unicas:
-        return []
-
     tokens_legenda = set(_PALAVRA.findall(caption.lower()))
-    presenca = [1.0 if k in tokens_legenda else 0.0 for k in unicas]
 
-    # --- sinal semântico ---
-    semantica = [0.0] * len(unicas)
-    if modelo_texto is not None:
-        try:
-            from sentence_transformers import util as sim_util
+    # dict.fromkeys preserva a ordem de primeira aparição
+    unicas = list(dict.fromkeys(
+        k.strip().lower() for k in keys if k and k.strip()
+    ))
 
-            emb = modelo_texto.encode(unicas + [caption], convert_to_tensor=True)
-            sims = sim_util.cos_sim(emb[:-1], emb[-1:])
-            brutos = [float(s) for s in sims.reshape(-1)]
-            # cosseno vive em [-1,1]; reescalamos para [0,1]
-            semantica = [max(0.0, min(1.0, (b + 1.0) / 2.0)) for b in brutos]
-        except Exception as exc:  # noqa: BLE001 — o peso não pode derrubar o job
-            log.warning("similaridade semântica indisponível (%s); usando só presença", exc)
-
-    resultado = [
-        PalavraChave(token=k, weight=round(0.6 * p + 0.4 * s, 4))
-        for k, p, s in zip(unicas, presenca, semantica)
-    ]
-    resultado.sort(key=lambda x: x.weight, reverse=True)
-    return resultado[:maximo]
+    presentes = [k for k in unicas if k in tokens_legenda]
+    return [Keyword(token=k, weight=1.0) for k in presentes[:maximo]]
 
 
 # --------------------------------------------------------------------------- #
@@ -294,7 +357,7 @@ def _escrever_annos(cfg, collection: str, nomes_base: list[str]) -> str:
 
 
 def processar_pedido(
-    pedido: PedidoDeJob,
+    pedido: CaptionRequest,
     job_id: str,
     montar_cfg,
     modelos,
@@ -308,13 +371,14 @@ def processar_pedido(
     t0 = time.perf_counter()
     itens = pedido.como_itens()
     if not itens:
-        raise ValueError(
-            "pedido vazio: informe `scene_id` + `scene_video_path`, ou `items`"
+        raise CenaNaoResolvida(
+            ErrorCode.INVALID_REQUEST,
+            "pedido vazio: informe `scene_id` + `scene_video_path`, ou `items`",
         )
 
     # --- PASSO 1: resolver os caminhos ------------------------------------ #
     resolvidos: list[dict] = []
-    falhas: list[RespostaDeCena] = []
+    falhas: list[SceneResponse] = []
     for item in itens:
         try:
             diretorio, arquivo, nome_base = resolver_cena(item)
@@ -322,15 +386,15 @@ def processar_pedido(
                 "item": item, "diretorio": diretorio,
                 "arquivo": arquivo, "nome_base": nome_base,
             })
-        except FileNotFoundError as exc:
-            falhas.append(RespostaDeCena(
-                scene_id=item.scene_id, status="error", erro=str(exc)))
+        except CenaNaoResolvida as exc:
+            falhas.append(SceneResponse.falha(
+                item.scene_id, exc.error_code, exc.message))
 
     if not resolvidos:
         return {
             "items": [f.model_dump() for f in falhas],
-            "resumo": {"total": len(itens), "ok": 0, "erros": len(falhas)},
-            "segundos": round(time.perf_counter() - t0, 2),
+            "summary": {"total": len(itens), "ok": 0, "errors": len(falhas)},
+            "seconds": round(time.perf_counter() - t0, 2),
         }
 
     # --- PASSO 2: agrupar por diretório ------------------------------------ #
@@ -345,15 +409,23 @@ def processar_pedido(
     # Usar o program_id faz cenas do mesmo programa COMPARTILHAREM cache — o que
     # é desejável, já que costumam ser reprocessadas juntas.
     def collection_de(grupo: list[dict]) -> str:
-        if pedido.collection:
-            return pedido.collection
+        """O `collection` é DERIVADO do program_id — não vem do pedido.
+
+        Um só identificador governa os cinco caminhos do RefCap:
+            annos/{collection}/            meta/captions/{collection}_*.jsonl
+            meta/framefeatures/{collection}.pt   meta/scores/{collection}_*.pt
+            results/construct/{collection}/
+
+        Sem `program_id` (caso que não deveria ocorrer no contrato acordado),
+        cai no job_id — isolamento total, sem reaproveitar cache de ninguém.
+        """
         pid = grupo[0]["item"].program_id
         return pid if pid else f"job_{job_id[:12]}"
 
     # --- PASSO 4: rodar um build por grupo --------------------------------- #
     from construct import build
 
-    por_cena: dict[str, RespostaDeCena] = {}
+    por_cena: dict[str, SceneResponse] = {}
     diagnostico_grupos = []
 
     for diretorio, grupo in grupos.items():
@@ -387,7 +459,7 @@ def processar_pedido(
                         except (json.JSONDecodeError, KeyError):
                             pass
 
-        apagados = _limpar_caches(cfg, collection) if pedido.limpar_cache else []
+        apagados = _limpar_caches(cfg, collection) if pedido.force else []
         if apagados:
             ja_em_cache = set()
 
@@ -413,14 +485,14 @@ def processar_pedido(
             legenda = proposta.get("cap")
 
             if not legenda:
-                por_cena[scene_id] = RespostaDeCena(
-                    scene_id=scene_id, status="error",
-                    erro=(f"o pipeline não produziu legenda para '{nb}'. "
-                          f"Verifique se o vídeo foi decodificado "
-                          f"(duração < 1s produz zero frames)."))
+                por_cena[scene_id] = SceneResponse.falha(
+                    scene_id, ErrorCode.CAPTION_FAILED,
+                    f"o pipeline não produziu legenda para '{nb}'. "
+                    f"Verifique se o vídeo foi decodificado "
+                    f"(duração < 1s produz zero frames).")
                 continue
 
-            por_cena[scene_id] = RespostaDeCena(
+            por_cena[scene_id] = SceneResponse(
                 scene_id=scene_id,
                 scene_caption_en=legenda,
                 keywords_en=ranquear_keywords(
@@ -445,7 +517,7 @@ def processar_pedido(
 
     return {
         "items": [r.model_dump(exclude_none=True) for r in resultado],
-        "resumo": {"total": len(itens), "ok": ok, "erros": len(resultado) - ok},
-        "grupos": diagnostico_grupos,
-        "segundos": round(time.perf_counter() - t0, 2),
+        "summary": {"total": len(itens), "ok": ok, "errors": len(resultado) - ok},
+        "groups": diagnostico_grupos,
+        "seconds": round(time.perf_counter() - t0, 2),
     }
