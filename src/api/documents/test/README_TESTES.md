@@ -18,13 +18,16 @@
 Três comandos, e você sabe se está tudo em ordem:
 
 ```bash
-# 1. cria as cenas de teste (usa ffmpeg)
-bash preparar_teste.sh
+# 1. descobre as SUAS cenas (ou cria, se o diretório estiver vazio)
+bash preparar_teste.sh /caminho/das/suas/cenas
 
-# 2. sobe o serviço COM os modelos — noutro terminal
+# 2. ★ CONFIRA o teste_config.sh gerado — e edite se quiser outras cenas
+cat teste_config.sh
+
+# 3. sobe o serviço COM os modelos — noutro terminal
 cd api && python app.py
 
-# 3. roda a bateria de 18 casos
+# 4. roda a bateria de 18 casos
 bash teste_manual.sh
 ```
 
@@ -41,45 +44,95 @@ Se algo falhar, o script diz **qual caso** e **o que veio em vez do esperado**.
 
 # PARTE 2 — `preparar_teste.sh`
 
-**O que faz:** cria vídeos reais com `ffmpeg` numa estrutura que exercita todos os casos.
+**★ Ele usa as SUAS cenas.** Olha o diretório indicado primeiro; só gera vídeos
+sintéticos se não achar nenhum `.mp4`.
 
 ```bash
-bash preparar_teste.sh            # cria
-bash preparar_teste.sh --limpar   # remove tudo
-BASE=/outro/lugar bash preparar_teste.sh
+bash preparar_teste.sh                        # /tmp/teste_refcap (gera se vazio)
+bash preparar_teste.sh /dados/minhas_cenas    # ★ usa as SUAS
+BASE=/dados/cenas bash preparar_teste.sh
+bash preparar_teste.sh --limpar               # só remove as sintéticas
 ```
 
-**A estrutura:**
+**[J] O `--limpar` recusa apagar um diretório que não seja o sintético.** Suas
+cenas nunca são tocadas.
 
+## O que ele faz
+
+1. **Inventaria** o diretório — quantos `.mp4` há
+2. **Mapeia** a estrutura `{program_id}/{video_id}/{scene_id}.mp4`, lendo a
+   **duração real do stream** de cada um (é o que o RefCap lê, e difere do player)
+3. **Escolhe** uma cena para cada papel do teste
+4. **Grava** o `teste_config.sh` — que você pode abrir e editar
+
+## Os cinco papéis
+
+| papel | para que serve | se faltar |
+|---|---|---|
+| `CENA_A1` | caminho feliz e testes de cache | 6 casos pulados |
+| `CENA_A2` | lote no mesmo diretório | 3 casos pulados |
+| `CENA_B1` | **outro diretório** — prova o agrupamento | 1 caso pulado |
+| `CENA_CURTA` | **< 1 s** — prova o patch do `viddataset` | 1 caso pulado |
+| `CENA_P2` | **outro `program_id`** — prova o isolamento | 1 caso pulado |
+
+**[J] Papel ausente = teste PULADO, não falhado.** Se o seu conjunto não tem
+cena com menos de 1 s, o caso 4 é pulado com aviso — em vez de acusar erro.
+
+## A escolha do programa principal
+
+Ele **não** pega o primeiro em ordem alfabética — pega o **mais rico**: o que
+tem mais diretórios, mais cenas, e de preferência uma cena curta. Assim o
+máximo de papéis é preenchido.
+
+**Exemplo real, com cenas de verdade:**
 ```
-/tmp/teste_refcap/
-├── prog_teste/
-│   ├── vidA/
-│   │   ├── cena_01.mp4   3.0s     caso normal
-│   │   ├── cena_02.mp4   2.0s     caso normal
-│   │   └── cena_03.mp4   0.52s    ★ testa o patch do vídeo curto
-│   ├── vidB/
-│   │   └── cena_04.mp4   3.0s     ★ OUTRO diretório — testa o agrupamento
-│   └── vazio/                     ★ sem vídeos — testa SCENE_NOT_FOUND
-└── prog_outro/
-    └── vidX/cena_01.mp4  2.0s     ★ MESMO scene_id — testa o isolamento
+program_id       video_id     scene_id       duração  frames
+──────────────────────────────────────────────────────────────
+jornal_y         ed01         abertura        2.000s     2
+novela_x         ep01         abertura        3.000s     3
+novela_x         ep01         closing         3.000s     3
+novela_x         ep01         flash           0.600s     1  <-- < 1s
+novela_x         ep02         cena_final      2.000s     2
+
+✓ CENA_A1     abertura      caminho feliz + testes de cache
+✓ CENA_A2     closing       lote no MESMO diretório
+✓ CENA_B1     cena_final    ★ OUTRO diretório — agrupamento
+✓ CENA_CURTA  flash         ★ < 1s — patch do viddataset
+✓ CENA_P2     abertura      ★ outro program_id — isolamento
+
+★ o scene_id 'abertura' existe nos DOIS programas — o teste de
+  isolamento fica completo.
 ```
 
-**Cada cena tem um propósito.** Não são cinco vídeos quaisquer:
+Note que ele escolheu `novela_x` (2 diretórios, 3 cenas, uma curta) e não
+`jornal_y` (1 diretório, 1 cena), embora `jornal_y` viesse antes no alfabeto.
 
-| cena | o que exercita |
-|---|---|
-| `cena_01`, `cena_02` | o caminho feliz, e o cache no reprocessamento |
-| **`cena_03` (0,52 s)** | o patch `max(1, int(duration))` no `viddataset.py`. Sem ele, `np.stack([])` derrubaria o processo |
-| **`cena_04` no `vidB`** | o agrupamento por diretório — dois `build()` numa requisição |
-| **`vazio/`** | `SCENE_NOT_FOUND` |
-| **`prog_outro/cena_01`** | o isolamento: mesmo `scene_id`, `collection` diferente |
+## O `teste_config.sh` — seu para editar
 
-Ao terminar, ele imprime a **duração real de cada stream** — que é o que o RefCap lê, e costuma diferir do que o player mostra:
+```bash
+BASE="/tmp/minhas_cenas"
+PROG="novela_x"
+PROG2="jornal_y"
 
+CENA_A1_ID="abertura"
+CENA_A1_VID="ep01"
+CENA_A1_PATH="/tmp/minhas_cenas/novela_x/ep01/abertura.mp4"
+...
+DIR_VAZIO="/tmp/minhas_cenas/novela_x/__vazio_para_teste"
+DIR_COM_VIDEO="/tmp/minhas_cenas/novela_x/ep02"
 ```
-prog_teste/vidA/cena_03.mp4    0.520s → 1 frame(s)
-```
+
+**Se a descoberta escolheu cenas diferentes das que você quer**, troque os
+valores. O `teste_manual.sh` lê daqui — não precisa rodar o preparador de novo.
+
+**★ Isso é o que torna a bateria portátil:** o mesmo conjunto de 18 testes roda
+em qualquer ambiente, sobre qualquer conjunto de cenas, mudando só este arquivo.
+
+## Se a sua estrutura for diferente
+
+O script espera `{program_id}/{video_id}/{scene_id}.mp4`. Com outra estrutura,
+ele ainda encontra os `.mp4`, mas `program_id` e `video_id` podem sair errados
+— **confira o config gerado** e ajuste.
 
 ---
 
