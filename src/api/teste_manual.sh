@@ -45,15 +45,33 @@ nok()   { FALHOU=$((FALHOU+1)); printf "  ${VERM}✗${FIM} %s\n       %s\n" "$1"
 skip()  { PULADO=$((PULADO+1)); printf "  ${AMAR}○${FIM} %s\n       pulado: %s\n" "$1" "$2"; }
 det()   { printf "       ${AZUL}%s${FIM}\n" "$1"; }
 
-post() {
-    local r; r=$(curl -s -w '\n%{http_code}' -X POST "$API/caption$2" \
-                 -H 'Content-Type: application/json' -d "$1")
-    HTTP=$(echo "$r" | tail -1); echo "$r" | sed '$d'
+# ⚠️ POR QUE ESTAS FUNÇÕES NÃO USAM $( )
+#
+# A versão anterior era chamada assim:   get /health
+# Isso roda a função num SUBSHELL — e a atribuição `HTTP=...` feita lá dentro
+# NÃO propaga para o shell pai. O $HTTP ficava vazio, o script concluía "não
+# respondeu", e o diagnóstico (rodando no pai) via HTTP 200. Sintoma clássico
+# e confuso: o curl à mão funciona, o script diz que não.
+#
+# A correção: as funções gravam o corpo num arquivo temporário e definem
+# DUAS variáveis globais — $HTTP e $R. São chamadas SEM $( ), então rodam no
+# shell atual e as duas propagam.
+#
+#     post '{"...":"..."}'  ->  define $HTTP e $R
+#     get  /health          ->  idem
+
+_CORPO=$(mktemp); trap 'rm -f "$_CORPO"' EXIT
+
+post() {   # post <json> [sufixo-da-rota]
+    HTTP=$(curl -s -o "$_CORPO" -w '%{http_code}' --max-time 600 -X POST "$API/caption$2" -H 'Content-Type: application/json' -d "$1" 2>/dev/null)
+    R=$(cat "$_CORPO")
 }
-get() {
-    local r; r=$(curl -s -w '\n%{http_code}' "$API$1")
-    HTTP=$(echo "$r" | tail -1); echo "$r" | sed '$d'
+
+get() {    # get <rota>
+    HTTP=$(curl -s -o "$_CORPO" -w '%{http_code}' --max-time 120 "$API$1" 2>/dev/null)
+    R=$(cat "$_CORPO")
 }
+
 jqp() { echo "$1" | python3 -c "import sys,json;d=json.load(sys.stdin);print($2)" 2>/dev/null; }
 
 # item <ID> <VID> <PATH> [extras json]
@@ -90,7 +108,7 @@ command -v curl >/dev/null || {
     exit 1
 }
 
-R=$(get /health)
+get /health
 if [ "$HTTP" != "200" ]; then
     printf "  ${VERM}✗ o serviço não respondeu em %s${FIM}\n" "$API"
     echo
@@ -102,7 +120,7 @@ if [ "$HTTP" != "200" ]; then
     CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$API/health" 2>/dev/null)
     ERRO=$(curl -s -o /dev/null --max-time 5 "$API/health" 2>&1)
     case "$CODIGO" in
-        000) echo "  CAUSA: não houve conexão (código 000)."
+        000) echo "  CAUSA: não houve conexão (código 000."
              echo "         $ERRO"
              echo
              echo "  Verifique, nesta ordem:"
@@ -119,7 +137,7 @@ if [ "$HTTP" != "200" ]; then
              echo "    4. teste à mão:"
              echo "         curl -v $API/health"
              ;;
-        404) echo "  CAUSA: o servidor respondeu, mas não tem a rota /health (404)."
+        404) echo "  CAUSA: o servidor respondeu, mas não tem a rota /health (404."
              echo "         Há algo escutando em $API, mas não é a Caption API."
              echo "         Confira a porta."
              ;;
@@ -144,7 +162,7 @@ titulo "PARTE 1 — CAMINHO FELIZ"
 if ! pula 1; then
     if [ -z "$CENA_A1_ID" ]; then skip "1. POST /caption (uma cena)" "CENA_A1 não configurada"
     else
-        R=$(post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH")")
+        post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH")"
         S=$(jqp "$R" "d['items'][0]['status']"); C=$(jqp "$R" "d['items'][0]['scene_caption_en']")
         if [ "$HTTP" = "200" ] && [ "$S" = "success" ] && [ -n "$C" ]; then
             ok "1. POST /caption ($CENA_A1_ID)"
@@ -158,7 +176,7 @@ if ! pula 2; then
     if [ -z "$CENA_A2_ID" ] || [ -z "$CENA_B1_ID" ]; then
         skip "2. POST /caption/batch (2 diretórios)" "faltam CENA_A2 ou CENA_B1"
     else
-        R=$(post "{\"items\":[$(item "$CENA_A2_ID" "$CENA_A2_VID" "$CENA_A2_PATH"),$(item "$CENA_B1_ID" "$CENA_B1_VID" "$CENA_B1_PATH")]}" /batch)
+        post "{\"items\":[$(item "$CENA_A2_ID" "$CENA_A2_VID" "$CENA_A2_PATH"),$(item "$CENA_B1_ID" "$CENA_B1_VID" "$CENA_B1_PATH")]}" /batch
         T=$(jqp "$R" "d['summary']['total']"); O=$(jqp "$R" "d['summary']['ok']"); G=$(jqp "$R" "len(d['groups'])")
         if [ "$HTTP" = "200" ] && [ "$O" = "2" ] && [ "$G" = "2" ]; then
             ok "2. POST /caption/batch — 2 cenas, 2 diretórios"
@@ -170,7 +188,7 @@ fi
 if ! pula 3; then
     if [ -z "$CENA_A1_ID" ]; then skip "3. assíncrono automático" "CENA_A1 não configurada"
     else
-        R=$(post "{\"items\":[$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH"),$(item "${CENA_A2_ID:-$CENA_A1_ID}" "${CENA_A2_VID:-$CENA_A1_VID}" "${CENA_A2_PATH:-$CENA_A1_PATH}"),$(item "${CENA_B1_ID:-$CENA_A1_ID}" "${CENA_B1_VID:-$CENA_A1_VID}" "${CENA_B1_PATH:-$CENA_A1_PATH}")]}" /batch)
+        post "{\"items\":[$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH"),$(item "${CENA_A2_ID:-$CENA_A1_ID}" "${CENA_A2_VID:-$CENA_A1_VID}" "${CENA_A2_PATH:-$CENA_A1_PATH}"),$(item "${CENA_B1_ID:-$CENA_A1_ID}" "${CENA_B1_VID:-$CENA_A1_VID}" "${CENA_B1_PATH:-$CENA_A1_PATH}")]}" /batch
         if [ "$HTTP" = "202" ]; then
             ok "3. assíncrono automático"
             det "state=$(jqp "$R" "d['state']")  check_at=$(jqp "$R" "d['check_at']")"
@@ -183,7 +201,7 @@ if ! pula 4; then
     if [ -z "$CENA_CURTA_ID" ]; then
         skip "4. ★ vídeo curto (< 1s)" "nenhuma cena com menos de 1s no seu conjunto"
     else
-        R=$(post "$(item "$CENA_CURTA_ID" "$CENA_CURTA_VID" "$CENA_CURTA_PATH")")
+        post "$(item "$CENA_CURTA_ID" "$CENA_CURTA_VID" "$CENA_CURTA_PATH")"
         S=$(jqp "$R" "d['items'][0]['status']")
         if [ "$HTTP" = "200" ] && [ "$S" = "success" ]; then
             ok "4. ★ vídeo de ${CENA_CURTA_DUR}s processado (patch do viddataset)"
@@ -198,7 +216,7 @@ titulo "PARTE 2 — CACHE"
 if ! pula 5; then
     if [ -z "$CENA_A1_ID" ]; then skip "5. reprocessar sem force" "CENA_A1 não configurada"
     else
-        T0=$(date +%s%N); R=$(post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH")"); T1=$(date +%s%N)
+        T0=$(date +%s%N); post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH")"; T1=$(date +%s%N)
         MS_SEM=$(( (T1-T0)/1000000 ))
         S=$(jqp "$R" "d['items'][0]['status']"); CACHE=$(jqp "$R" "d['groups'][0].get('estavam_em_cache','?')")
         if [ "$S" = "success" ]; then
@@ -212,7 +230,7 @@ if ! pula 6; then
     if [ -z "$CENA_A1_ID" ]; then skip "6. force: true" "CENA_A1 não configurada"
     else
         T0=$(date +%s%N)
-        R=$(post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH" '"force":true')")
+        post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH" '"force":true')"
         T1=$(date +%s%N); MS_COM=$(( (T1-T0)/1000000 ))
         S=$(jqp "$R" "d['items'][0]['status']")
         if [ "$S" = "success" ]; then
@@ -228,7 +246,7 @@ if ! pula 6; then
 fi
 
 if ! pula 7; then
-    R=$(get "/caption/$PROG"); T=$(jqp "$R" "d['summary']['total']")
+    get "/caption/$PROG"; T=$(jqp "$R" "d['summary']['total']")
     if [ -n "$T" ] && [ "$T" -ge 2 ]; then
         ok "7. o force NÃO apagou as outras cenas"
         det "cenas persistidas no $PROG: $T"
@@ -239,7 +257,7 @@ fi
 titulo "PARTE 3 — ERROS"
 
 if ! pula 8; then
-    R=$(post "$(item "cena_que_nao_existe" "vid" "$BASE/__nao_existe__/x.mp4")")
+    post "$(item "cena_que_nao_existe" "vid" "$BASE/__nao_existe__/x.mp4")"
     E=$(jqp "$R" "d['items'][0]['error_code']")
     [ "$E" = "FILE_NOT_FOUND" ] && ok "8. FILE_NOT_FOUND" || nok "8. FILE_NOT_FOUND" "veio: $E"
 fi
@@ -247,7 +265,7 @@ fi
 if ! pula 9; then
     if [ -z "$DIR_VAZIO" ]; then skip "9. SCENE_NOT_FOUND" "DIR_VAZIO não configurado"
     else
-        R=$(post "$(item "cena_inexistente" "vid" "$DIR_VAZIO")")
+        post "$(item "cena_inexistente" "vid" "$DIR_VAZIO")"
         E=$(jqp "$R" "d['items'][0]['error_code']")
         [ "$E" = "SCENE_NOT_FOUND" ] && ok "9. SCENE_NOT_FOUND (diretório vazio)" || nok "9. SCENE_NOT_FOUND" "veio: $E"
     fi
@@ -256,7 +274,7 @@ fi
 if ! pula 10; then
     if [ -z "$DIR_COM_VIDEO" ]; then skip "10. ★ fallback removido" "DIR_COM_VIDEO não configurado"
     else
-        R=$(post "$(item "id_que_nao_existe_ali" "vid" "$DIR_COM_VIDEO")")
+        post "$(item "id_que_nao_existe_ali" "vid" "$DIR_COM_VIDEO")"
         E=$(jqp "$R" "d['items'][0]['error_code']")
         if [ "$E" = "SCENE_NOT_FOUND" ]; then
             ok "10. ★ fallback removido — não legenda o vídeo errado"
@@ -266,7 +284,7 @@ if ! pula 10; then
 fi
 
 if ! pula 11; then
-    R=$(post '{}')
+    post '{}'
     { [ "$HTTP" = "400" ] || [ "$HTTP" = "422" ]; } \
         && ok "11. INVALID_REQUEST (pedido vazio) — HTTP $HTTP" \
         || nok "11. INVALID_REQUEST" "HTTP=$HTTP (esperava 400 ou 422)"
@@ -275,7 +293,7 @@ fi
 if ! pula 12; then
     if [ -z "$CENA_A1_ID" ]; then skip "12. erro parcial no lote" "CENA_A1 não configurada"
     else
-        R=$(post "{\"items\":[$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH"),$(item "cena_ruim" "vid" "/nada/x.mp4"),$(item "${CENA_A2_ID:-$CENA_A1_ID}" "${CENA_A2_VID:-$CENA_A1_VID}" "${CENA_A2_PATH:-$CENA_A1_PATH}")]}" /batch)
+        post "{\"items\":[$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH"),$(item "cena_ruim" "vid" "/nada/x.mp4"),$(item "${CENA_A2_ID:-$CENA_A1_ID}" "${CENA_A2_VID:-$CENA_A1_VID}" "${CENA_A2_PATH:-$CENA_A1_PATH}")]}" /batch
         O=$(jqp "$R" "d['summary']['ok']"); E=$(jqp "$R" "d['summary']['errors']")
         if [ "$HTTP" = "200" ] && [ "$E" = "1" ]; then
             ok "12. ★ erro parcial NÃO derruba o lote"
@@ -288,28 +306,28 @@ fi
 titulo "PARTE 4 — CONSULTA"
 
 if ! pula 13; then
-    R=$(get "/caption/$PROG"); T=$(jqp "$R" "d['summary']['total']")
+    get "/caption/$PROG"; T=$(jqp "$R" "d['summary']['total']")
     { [ "$HTTP" = "200" ] && [ -n "$T" ] && [ "$T" -ge 1 ]; } \
         && { ok "13. GET /caption/$PROG"; det "cenas: $T"; } \
         || nok "13. GET todas" "HTTP=$HTTP total=$T"
 fi
 
 if ! pula 14; then
-    R=$(get "/caption/$PROG?scene_id=$CENA_A1_ID"); T=$(jqp "$R" "d['summary']['total']")
+    get "/caption/$PROG?scene_id=$CENA_A1_ID"; T=$(jqp "$R" "d['summary']['total']")
     [ "$T" = "1" ] && ok "14. GET com 1 filtro" || nok "14. GET 1 filtro" "total=$T"
 fi
 
 if ! pula 15; then
     if [ -z "$CENA_A2_ID" ]; then skip "15. GET com 2 filtros" "CENA_A2 não configurada"
     else
-        R=$(get "/caption/$PROG?scene_id=$CENA_A1_ID&scene_id=$CENA_A2_ID")
+        get "/caption/$PROG?scene_id=$CENA_A1_ID&scene_id=$CENA_A2_ID"
         T=$(jqp "$R" "d['summary']['total']")
         [ "$T" = "2" ] && ok "15. GET com 2 filtros" || nok "15. GET 2 filtros" "total=$T"
     fi
 fi
 
 if ! pula 16; then
-    R=$(get "/caption/programa_que_nunca_existiu"); T=$(jqp "$R" "d['summary']['total']")
+    get "/caption/programa_que_nunca_existiu"; T=$(jqp "$R" "d['summary']['total']")
     { [ "$HTTP" = "200" ] && [ "$T" = "0" ]; } \
         && ok "16. GET programa inexistente → 200 + lista vazia" \
         || nok "16. GET inexistente" "HTTP=$HTTP total=$T"
@@ -321,11 +339,11 @@ titulo "PARTE 5 — ISOLAMENTO"
 if ! pula 17; then
     if [ -z "$CENA_P2_ID" ]; then skip "17. ★ isolamento entre programas" "PROG2/CENA_P2 não configurados"
     else
-        R=$(post "$(item "$CENA_P2_ID" "$CENA_P2_VID" "$CENA_P2_PATH" "" "$PROG2")")
+        post "$(item "$CENA_P2_ID" "$CENA_P2_VID" "$CENA_P2_PATH" "" "$PROG2")"
         S=$(jqp "$R" "d['items'][0]['status']")
         if [ "$HTTP" = "200" ] && [ "$S" = "success" ]; then
             C2=$(jqp "$R" "d['items'][0]['scene_caption_en']")
-            R1=$(get "/caption/$PROG?scene_id=$CENA_P2_ID"); C1=$(jqp "$R1" "d['items'][0]['scene_caption_en']")
+            get "/caption/$PROG?scene_id=$CENA_P2_ID"; R1="$R"; C1=$(jqp "$R1" "d['items'][0]['scene_caption_en']")
             ok "17. ★ mesmo scene_id em program_id diferente"
             det "$PROG/$CENA_P2_ID  : ${C1:-—}"
             det "$PROG2/$CENA_P2_ID : $C2"
@@ -341,7 +359,7 @@ if ! pula 17; then
 fi
 
 if ! pula 18; then
-    R=$(get "/diagnostics/caption?video=$(basename "${CENA_A1_PATH:-x.mp4}")")
+    get "/diagnostics/caption?video=$(basename "${CENA_A1_PATH:-x.mp4}")"
     if [ "$HTTP" = "200" ] || [ "$HTTP" = "404" ]; then
         ok "18. /diagnostics/caption respondeu — HTTP $HTTP"
         [ "$HTTP" = "404" ] && det "404 é esperado se o vídeo não está no video_root configurado"
@@ -351,7 +369,7 @@ fi
 
 # =============================================================================
 titulo "FECHAMENTO — os modelos ficaram residentes?"
-R=$(get /health); GPU_FIM=$(jqp "$R" "d['models']['gpu'].get('allocated_mb','—')")
+get /health; GPU_FIM=$(jqp "$R" "d['models']['gpu'].get('allocated_mb','—')")
 echo "  allocated_mb no início : $GPU_INI"
 echo "  allocated_mb no fim    : $GPU_FIM"
 if [ "$GPU_INI" = "$GPU_FIM" ]; then
@@ -395,7 +413,7 @@ echo
 if [ "$FALHOU" -eq 0 ]; then
     echo "  ✓ Todos os casos executados passaram."
     [ "$PULADO" -gt 0 ] && echo "    (os pulados precisam de cenas que o seu conjunto não tem —"
-    [ "$PULADO" -gt 0 ] && echo "     edite o teste_config.sh para apontá-las)"
+    [ "$PULADO" -gt 0 ] && echo "     edite o teste_config.sh para apontá-las"
 else
     echo "  ✗ Há falhas acima — investigue antes de seguir."
 fi
