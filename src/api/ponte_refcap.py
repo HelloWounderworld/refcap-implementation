@@ -102,11 +102,65 @@ def _descobrir_raiz() -> pathlib.Path:
 RAIZ_REFCAP = _descobrir_raiz()
 
 
-def preparar_sys_path() -> None:
+def nomes_de_topo_do_refcap() -> set[str]:
+    """Os nomes que o RefCap ocupa no topo — pacotes e módulos."""
+    nomes = set()
+    for p in RAIZ_REFCAP.iterdir():
+        if p.name.startswith((".", "__")):
+            continue
+        if p.is_dir():
+            nomes.add(p.name)
+        elif p.suffix == ".py":
+            nomes.add(p.stem)
+    return nomes
+
+
+def checar_colisoes(dir_api: pathlib.Path | None = None) -> list[str]:
+    """Detecta módulos da API que SOMBREIAM nomes de topo do RefCap.
+
+    ★ POR QUE ISTO EXISTE
+        O `api/` fica dentro da raiz do RefCap, e o diretório do app entra em
+        `sys.path` ANTES dela. Então um `api/pipeline.py` ocupa o nome
+        `pipeline` em `sys.modules`, e o `from pipeline.denoiser import *` do
+        construct.py falha com uma mensagem que não diz a causa:
+
+            ModuleNotFoundError: No module named 'pipeline.denoiser';
+                                 'pipeline' is not a package
+
+        Aconteceu de verdade. Esta checagem transforma isso num aviso claro,
+        no startup, em vez de um erro obscuro na primeira requisição.
+    """
+    dir_api = dir_api or _AQUI
+    do_refcap = nomes_de_topo_do_refcap()
+    colisoes = []
+    for p in dir_api.iterdir():
+        if p.name.startswith((".", "__")):
+            continue
+        nome = p.stem if p.suffix == ".py" else (p.name if p.is_dir() else None)
+        if nome and nome in do_refcap:
+            colisoes.append(nome)
+    return sorted(colisoes)
+
+
+def preparar_sys_path(avisar_colisoes: bool = True) -> None:
     """Põe a RAIZ do RefCap no sys.path. Idempotente."""
     caminho = str(RAIZ_REFCAP)
     if caminho not in sys.path:
         sys.path.insert(0, caminho)
+
+    if avisar_colisoes:
+        colisoes = checar_colisoes()
+        if colisoes:
+            raise RuntimeError(
+                f"COLISÃO DE NOMES entre a API e o RefCap: {colisoes}\n"
+                f"\n"
+                f"Os módulos acima existem em ambos, e o do api/ vence — o que\n"
+                f"quebra os imports internos do RefCap com mensagens como\n"
+                f"  \"No module named 'X.y'; 'X' is not a package\".\n"
+                f"\n"
+                f"Renomeie o(s) arquivo(s) em {dir(_AQUI) and _AQUI}.\n"
+                f"Nomes ocupados pelo RefCap: {sorted(nomes_de_topo_do_refcap())}"
+            )
 
 
 # --------------------------------------------------------------------------- #
