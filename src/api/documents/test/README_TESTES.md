@@ -253,11 +253,37 @@ Rode **antes e depois** da bateria. O número deve ser **o mesmo** — se cresce
 
 ---
 
+# PARTE 4.5 — ★ Onde as cenas podem estar
+
+**Em qualquer lugar.** O caminho vai **absoluto** na requisição, e a API deriva
+o `video_root` dele — por requisição, por grupo.
+
+**[V] Verificado:** uma cena em `/tmp/longe/muito/fundo/prog_z/vid9/cena_x.mp4`
+processou normalmente, e o grupo reportou `video_root` = aquele diretório.
+
+Não há exigência de que as cenas estejam perto do `api/`, dentro do RefCap, ou
+sob o `video_root` do `cfg.py`.
+
+**As duas exceções**, ambas em rotas de diagnóstico:
+
+| rota | como se refere ao vídeo |
+|---|---|
+| `GET /diagnostics/caption?video=X.mp4` | **nome do arquivo** no `video_root` configurado |
+| `GET /diagnostics/caption-batch?diretorio=...` | caminho absoluto, como as de produção |
+
+## Se o preparador errar a estrutura
+
+Ele espera `{program_id}/{video_id}/{scene_id}.mp4`. Com outra organização, o
+`program_id` e o `video_id` descobertos podem sair errados — **edite o
+`teste_config.sh`**, que é para isso que ele existe.
+
+---
+
 # PARTE 5 — Quando algo falha
 
 | sintoma | provável causa | onde olhar |
 |---|---|---|
-| pré-voo: "serviço não respondeu" | o serviço não está no ar | suba com `python app.py` |
+| **pré-voo: "serviço não respondeu"** | o serviço não está no ar, ou está noutra porta | o script diz a causa e os 4 passos. **Não tem relação com o caminho das cenas** |
 | pré-voo: `models.ready: False` | subiu com `REFCAP_CARREGAR_MODELOS=0` | remova a variável |
 | caso 4 falha (vídeo curto) | patch do `viddataset` não aplicado | `grep n_amostras dataset/viddataset.py` |
 | caso 6 tão rápido quanto o 5 | o `force` não limpou o cache | veja `cache_limpo` na resposta |

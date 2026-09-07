@@ -209,7 +209,10 @@ for d in "$BASE/$PROG"/*/; do
     [ "$(find "$d" -maxdepth 1 -iname '*.mp4' 2>/dev/null | wc -l)" -eq 0 ] && { DIR_VAZIO="${d%/}"; break; }
 done
 if [ -z "$DIR_VAZIO" ]; then
-    DIR_VAZIO="$BASE/$PROG/__vazio_para_teste"
+    # ★ Criado em /tmp, NUNCA dentro das suas cenas.
+    # A versão anterior o criava em $BASE/$PROG/ — o que contradizia a
+    # promessa de "nada será criado nem modificado" quando as cenas são suas.
+    DIR_VAZIO="/tmp/refcap_dir_vazio_para_teste"
     mkdir -p "$DIR_VAZIO"; CRIEI_VAZIO=1
 fi
 

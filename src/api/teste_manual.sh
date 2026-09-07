@@ -67,6 +67,9 @@ titulo "CONFIGURAÇÃO EM USO"
 printf "  %-14s %s\n" "config"   "$CONFIG"
 printf "  %-14s %s\n" "API"      "$API"
 printf "  %-14s %s\n" "BASE"     "$BASE"
+# ★ As cenas podem estar em QUALQUER lugar: o caminho vai absoluto na
+#   requisição, e a API deriva o video_root dele. Não precisam estar
+#   perto do api/ nem sob o RefCap.
 printf "  %-14s %s\n" "PROG"     "$PROG"
 printf "  %-14s %s\n" "PROG2"    "${PROG2:-—}"
 echo
@@ -80,11 +83,52 @@ printf "  %-14s %-22s %s\n" "CENA_P2"    "${CENA_P2_ID:-—}"    "${CENA_P2_VID:
 
 # --------------------------------------------------------------------------- #
 titulo "PRÉ-VOO"
-R=$(get /health)
-[ "$HTTP" = "200" ] || {
-    printf "  ${VERM}✗ o serviço não respondeu em %s (HTTP %s)${FIM}\n" "$API" "$HTTP"
-    echo "    Suba com: cd api && python app.py"; exit 1
+
+command -v curl >/dev/null || {
+    printf "  ${VERM}✗ curl não encontrado${FIM}\n"
+    echo "    Instale o curl, ou rode os testes pelo TESTES_CURL.md com outra ferramenta."
+    exit 1
 }
+
+R=$(get /health)
+if [ "$HTTP" != "200" ]; then
+    printf "  ${VERM}✗ o serviço não respondeu em %s${FIM}\n" "$API"
+    echo
+    echo "  ⚠️ ISTO NÃO TEM RELAÇÃO COM O CAMINHO DAS CENAS."
+    echo "     O pré-voo só chama GET /health — as cenas nem foram consultadas."
+    echo
+
+    # --- diagnóstico: por que falhou? ---
+    CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$API/health" 2>/dev/null)
+    ERRO=$(curl -s -o /dev/null --max-time 5 "$API/health" 2>&1)
+    case "$CODIGO" in
+        000) echo "  CAUSA: não houve conexão (código 000)."
+             echo "         $ERRO"
+             echo
+             echo "  Verifique, nesta ordem:"
+             echo "    1. o serviço está no ar?"
+             echo "         cd api && python app.py"
+             echo "         (ou: supervisorctl status refcap-api)"
+             echo
+             echo "    2. é esta a porta? o default do app.py é 8000."
+             echo "         API=http://localhost:8080 bash teste_manual.sh"
+             echo
+             echo "    3. o serviço está noutra máquina ou container?"
+             echo "         API=http://IP_OU_HOST:8000 bash teste_manual.sh"
+             echo
+             echo "    4. teste à mão:"
+             echo "         curl -v $API/health"
+             ;;
+        404) echo "  CAUSA: o servidor respondeu, mas não tem a rota /health (404)."
+             echo "         Há algo escutando em $API, mas não é a Caption API."
+             echo "         Confira a porta."
+             ;;
+        *)   echo "  CAUSA: o servidor respondeu com HTTP $CODIGO."
+             echo "         Veja o log do serviço."
+             ;;
+    esac
+    exit 1
+fi
 PRONTO=$(jqp "$R" "d['models']['ready']")
 GPU_INI=$(jqp "$R" "d['models']['gpu'].get('allocated_mb','—')")
 echo "  serviço          : ok"
