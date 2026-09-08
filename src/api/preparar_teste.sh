@@ -225,16 +225,18 @@ if [ -n "$CONTAINER" ]; then
         echo "    DECLARATIVO — ele não executa nada no container."
         exit 1
     fi
+    # ★ aceita <BASE_API>/<PROGRAM_ID> OU <BASE_API> — a busca decide qual usar
     DIR_PROG_API="$BASE_API/$PROGRAM_ID"
-    if ! $DEXEC test -d "$DIR_PROG_API" 2>/dev/null; then
-        printf "\n${cR}✗ %s não existe DENTRO do container${cF}\n" "$DIR_PROG_API"
+    if ! $DEXEC test -d "$DIR_PROG_API" 2>/dev/null && ! $DEXEC test -d "$BASE_API" 2>/dev/null; then
+        printf "\n${cR}✗ nenhum destes existe DENTRO do container:${cF}\n"
+        printf "     %s\n     %s\n" "$DIR_PROG_API" "$BASE_API"
         echo "  O que há em $BASE_API:"
         docker exec "$CONTAINER" ls "$BASE_API" 2>/dev/null | head -10 | sed 's/^/     /'
         echo
         echo "  Confira BASE_API e PROGRAM_ID no teste_config.sh."
         exit 1
     fi
-elif [ ! -d "$DIR_PROG" ]; then
+elif [ ! -d "$DIR_PROG" ] && [ ! -d "$BASE_HOST" ]; then
     if [ "$1" = "--gerar" ] && command -v ffmpeg >/dev/null; then
         t "GERANDO CENAS SINTÉTICAS"
         mkdir -p "$DIR_PROG/vidA" "$DIR_PROG/vidB"
@@ -250,7 +252,8 @@ elif [ ! -d "$DIR_PROG" ]; then
             g "$BASE_HOST/$PROGRAM_ID_2/${VIDEO_ID_2:-vidX}/cena_01.mp4" 2
         fi
     else
-        printf "\n${cR}✗ diretório não encontrado no HOST: %s${cF}\n" "$DIR_PROG"
+        printf "\n${cR}✗ nenhum destes existe no HOST:${cF}\n"
+        printf "     %s\n     %s\n" "$DIR_PROG" "$BASE_HOST"
         echo
         echo "  Três saídas:"
         echo "    1. ajuste BASE_HOST e PROGRAM_ID no teste_config.sh"
@@ -267,66 +270,91 @@ t "CENAS ENCONTRADAS"
 # A listagem: no HOST, ou dentro do container.
 # ★ O 3o campo do MAPA e' SEMPRE o caminho que vai na REQUISICAO (o do
 #   container, se houver traducao) — nunca o caminho do host.
+# O script de busca, o MESMO nos dois modos.
+BUSCA_PY=$(cat <<'PYBUSCA'
+import pathlib, subprocess, sys
+
+# ★ BUSCA TOLERANTE À PROFUNDIDADE
+#
+# A versão anterior exigia exatamente <raiz>/{video_id}/*.mp4 — e devolvia
+# vazio, sem explicação, se a estrutura fosse outra. Agora:
+#
+#   1. tentamos <BASE_API>/<PROGRAM_ID>; se não existir, usamos <BASE_API>
+#   2. buscamos os .mp4 RECURSIVAMENTE
+#   3. o video_id é o diretório-pai relativo à raiz; se o arquivo estiver
+#      direto na raiz, video_id fica vazio
+BASE_API, PROGRAM_ID, EXT = sys.argv[1], sys.argv[2], sys.argv[3]
+
+candidatos = [pathlib.Path(BASE_API) / PROGRAM_ID, pathlib.Path(BASE_API)]
+raiz = next((c for c in candidatos if c.is_dir()), None)
+if raiz is None:
+    print("__SEM_RAIZ__", "|".join(str(c) for c in candidatos), sep="\t")
+    raise SystemExit
+
+arquivos = sorted(raiz.rglob("*" + EXT))
+if not arquivos:
+    # diagnóstico: mostramos o que DE FATO existe ali
+    itens = sorted(p.name + ("/" if p.is_dir() else "") for p in raiz.iterdir())[:15]
+    print("__VAZIO__", str(raiz), "|".join(itens), sep="\t")
+    raise SystemExit
+
+def dur(p):
+    try:
+        r = subprocess.run(["ffprobe","-v","error","-select_streams","v:0",
+                            "-show_entries","stream=duration","-of","csv=p=0",str(p)],
+                           capture_output=True, text=True, timeout=20)
+        return float(r.stdout.strip())
+    except Exception:
+        return -1.0
+
+for f in arquivos:
+    rel = f.relative_to(raiz)
+    # o video_id é o primeiro nível abaixo da raiz; vazio se o arquivo está nela
+    vid = rel.parts[-2] if len(rel.parts) >= 2 else ""
+    print("%s|%s|%s|%.3f" % (vid, f.stem, f, dur(f)))
+PYBUSCA
+)
+
 if [ -n "$CONTAINER" ]; then
-    # ★ O stderr NÃO é descartado: se o comando falhar dentro do container,
-    # queremos ver o motivo. A versão anterior mandava tudo para /dev/null e
-    # o sintoma virava um enigmático "nenhum .mp4 encontrado".
+    # ★ O stderr NÃO é descartado: se falhar dentro do container, queremos ver.
     ERRO_CTR=$(mktemp)
-    BRUTO=$($DEXEC python3 -c "
-import pathlib, subprocess
-raiz = pathlib.Path('$BASE_API/$PROGRAM_ID')
-def dur(p):
-    try:
-        r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0',
-                            '-show_entries','stream=duration','-of','csv=p=0',str(p)],
-                           capture_output=True, text=True, timeout=20)
-        return float(r.stdout.strip())
-    except Exception:
-        return -1.0
-for d in sorted(x for x in raiz.iterdir() if x.is_dir()):
-    for f in sorted(d.glob('*$EXT')):
-        print('%s|%s|%s|%.3f' % (d.name, f.stem, f, dur(f)))
-" 2>"$ERRO_CTR")
-    if [ -z "$BRUTO" ]; then
-        printf "\n${cR}✗ o container não listou nenhum %s em %s${cF}\n" "$EXT" "$BASE_API/$PROGRAM_ID"
-        if [ -s "$ERRO_CTR" ]; then
-            echo
-            echo "  O erro DENTRO do container:"
-            sed 's/^/     /' "$ERRO_CTR" | head -12
-            echo
-            grep -q "No module named\|python3: not found\|executable file not found" "$ERRO_CTR" && {
-                echo "  ★ parece que o python3 não está no PATH do container."
-                echo "    Use o MODO DECLARATIVO no teste_config.sh — ele não"
-                echo "    precisa executar nada lá dentro."
-            }
-        else
-            echo
-            echo "  O diretório existe, mas está vazio para o container. Confira:"
-            echo "      $DEXEC ls -la $BASE_API/$PROGRAM_ID"
-            echo
-            echo "  Se lá tiver subdiretórios com .mp4 e mesmo assim vier vazio,"
-            echo "  use o MODO DECLARATIVO — é mais simples e sempre funciona."
-        fi
-        rm -f "$ERRO_CTR"; exit 1
-    fi
-    rm -f "$ERRO_CTR"
+    BRUTO=$($DEXEC python3 -c "$BUSCA_PY" "$BASE_API" "$PROGRAM_ID" "$EXT" 2>"$ERRO_CTR")
 else
-    BRUTO=$(python3 -c "
-import pathlib, subprocess
-raiz = pathlib.Path('$DIR_PROG')
-def dur(p):
-    try:
-        r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0',
-                            '-show_entries','stream=duration','-of','csv=p=0',str(p)],
-                           capture_output=True, text=True, timeout=20)
-        return float(r.stdout.strip())
-    except Exception:
-        return -1.0
-for d in sorted(x for x in raiz.iterdir() if x.is_dir()):
-    for f in sorted(d.glob('*$EXT')):
-        print('%s|%s|%s|%.3f' % (d.name, f.stem, f, dur(f)))
-")
+    ERRO_CTR=$(mktemp)
+    BRUTO=$(python3 -c "$BUSCA_PY" "$BASE_HOST" "$PROGRAM_ID" "$EXT" 2>"$ERRO_CTR")
 fi
+
+# --- o script de busca reporta os dois casos de falha explicitamente ---
+case "$BRUTO" in
+    __SEM_RAIZ__*)
+        printf "\n${cR}✗ nenhum destes caminhos existe:${cF}\n"
+        echo "$BRUTO" | cut -f2 | tr '|' '\n' | sed 's/^/     /'
+        echo
+        echo "  Confira BASE_API e PROGRAM_ID no teste_config.sh."
+        rm -f "$ERRO_CTR"; exit 1 ;;
+    __VAZIO__*)
+        RAIZ_USADA=$(echo "$BRUTO" | cut -f2)
+        CONTEUDO=$(echo "$BRUTO" | cut -f3)
+        printf "\n${cR}✗ nenhum %s em %s${cF}\n" "$EXT" "$RAIZ_USADA"
+        echo
+        echo "  O que EXISTE lá (busquei recursivamente):"
+        echo "$CONTEUDO" | tr '|' '\n' | sed 's/^/     /'
+        echo
+        echo "  Se os vídeos têm outra extensão, ajuste EXT no teste_config.sh."
+        rm -f "$ERRO_CTR"; exit 1 ;;
+esac
+
+if [ -z "$BRUTO" ]; then
+    printf "\n${cR}✗ a busca não devolveu nada${cF}\n"
+    if [ -s "$ERRO_CTR" ]; then
+        echo; echo "  O erro:"; sed 's/^/     /' "$ERRO_CTR" | head -12
+    fi
+    echo
+    printf "  ${cA}★ Use o MODO DECLARATIVO${cF} — preencha CENAS_A no config.\n"
+    echo "    Ele não executa nada no container nem lê o disco."
+    rm -f "$ERRO_CTR"; exit 1
+fi
+rm -f "$ERRO_CTR"
 
 # filtra por VIDEO_IDS, aplica MAX_CENAS e TRADUZ os caminhos
 MAPA=$(printf '%s' "$BRUTO" | python3 -c "
