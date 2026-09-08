@@ -368,8 +368,17 @@ for l in sys.stdin.read().strip().splitlines():
     if not l.strip(): continue
     v, s, c, d = l.split('|')
     if filtro and v not in filtro: continue
-    # ★ TRADUCAO: o caminho da requisicao e' o do container
-    if b_api != b_host and c.startswith(b_host):
+    # ★ TRADUCAO: troca o prefixo do host pelo do container.
+    #
+    # ⚠️ O 'b_host' PRECISA ser não-vazio. Com string vazia,
+    # c.startswith('') e' SEMPRE True e c[0:] devolve o caminho inteiro —
+    # o resultado virava b_api + caminho_absoluto, duplicando o prefixo:
+    #     '/dados/cenas' + '/dados/cenas/prog/x.mp4'
+    #       = '/dados/cenas/dados/cenas/prog/x.mp4'
+    #
+    # No modo container o b_host e' vazio (a busca ja' roda la' dentro e
+    # devolve o caminho certo), entao NAO ha' nada a traduzir.
+    if b_host and b_api and b_api != b_host and c.startswith(b_host):
         c = b_api + c[len(b_host):]
     try: d = float(d)
     except ValueError: d = -1.0
