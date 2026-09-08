@@ -1,317 +1,254 @@
 #!/usr/bin/env bash
 # =============================================================================
-# preparar_teste.sh — descobre as SUAS cenas, ou cria cenas de teste
+# preparar_teste.sh — encontra as suas cenas e as divide nos papéis do teste
 #
-# COMO FUNCIONA
-#   1. Olha o diretório indicado. Se JÁ HOUVER .mp4, usa os seus — não cria nada.
-#   2. Só se estiver vazio, gera cenas sintéticas com ffmpeg.
-#   3. Em ambos os casos, escreve `teste_config.sh` com os papéis mapeados.
-#
-#   O `teste_config.sh` é um arquivo comum: ABRA E EDITE se a descoberta
-#   escolher cenas diferentes das que você quer testar.
+# ★ NÃO CRIA NADA. Só lê o que já existe e monta o mapa.
+#   (Se o diretório estiver vazio e houver ffmpeg, oferece gerar cenas.)
 #
 # USO
-#   bash preparar_teste.sh                        # usa /tmp/teste_refcap
-#   bash preparar_teste.sh /dados/minhas_cenas    # usa as SUAS cenas
-#   BASE=/dados/cenas bash preparar_teste.sh
-#   bash preparar_teste.sh --limpar               # remove só as sintéticas
+#     bash preparar_teste.sh              # lê o teste_config.sh
+#     bash preparar_teste.sh --gerar      # gera cenas sintéticas, se vazio
 #
-# ESTRUTURA ESPERADA (a do contrato da API)
-#   <BASE>/{program_id}/{video_id}/{scene_id}.mp4
-#
-#   Se a sua for diferente, o script ainda descobre os .mp4 — mas confira o
-#   `teste_config.sh` gerado, porque program_id e video_id podem sair errados.
+# O QUE ELE PRODUZ
+#     teste_papeis.sh — o mapa, consumido pelo teste_manual.sh
 # =============================================================================
 
-if [ -n "$1" ] && [ "$1" != "--limpar" ]; then BASE="$1"; fi
-BASE="${BASE:-/tmp/teste_refcap}"
-CONFIG="${CONFIG:-$(cd "$(dirname "$0")" && pwd)/teste_config.sh}"
+AQUI="$(cd "$(dirname "$0")" && pwd)"
+CONFIG="${CONFIG:-$AQUI/teste_config.sh}"
+PAPEIS="${PAPEIS:-$AQUI/teste_papeis.sh}"
 
-VERDE='\033[0;32m'; AMAR='\033[0;33m'; VERM='\033[0;31m'; FIM='\033[0m'
-titulo() { echo; echo "═══════════════════════════════════════════════════════════════════"; echo " $1"; echo "═══════════════════════════════════════════════════════════════════"; }
+V='\033[0;32m'; A='\033[0;33m'; R='\033[0;31m'; C='\033[0;36m'; F='\033[0m'
+t() { echo; echo "═══════════════════════════════════════════════════════════════════"; echo " $1"; echo "═══════════════════════════════════════════════════════════════════"; }
+
+[ -f "$CONFIG" ] || { printf "${R}✗ falta o %s${F}\n" "$CONFIG"; exit 1; }
+# shellcheck disable=SC1090
+. "$CONFIG"
+
+API="${API_SCHEME}://${API_HOST}:${API_PORT}"
+
+t "CONFIGURAÇÃO LIDA"
+printf "  %-14s %s\n" "API"        "$API"
+printf "  %-14s %s\n" "BASE"       "$BASE"
+printf "  %-14s %s\n" "PROGRAM_ID" "$PROGRAM_ID"
+printf "  %-14s %s\n" "VIDEO_IDS"  "${VIDEO_IDS:-(descobrir automaticamente)}"
+printf "  %-14s %s\n" "PROGRAM_ID_2" "${PROGRAM_ID_2:-(sem teste de isolamento)}"
+printf "  %-14s %s\n" "MAX_CENAS"  "$MAX_CENAS"
 
 # --------------------------------------------------------------------------- #
-if [ "$1" = "--limpar" ]; then
-    if [ "$BASE" = "/tmp/teste_refcap" ]; then
-        rm -rf "$BASE"; rm -f "$CONFIG"
-        echo "✓ $BASE e $CONFIG removidos"
+DIR_PROG="$BASE/$PROGRAM_ID"
+
+if [ ! -d "$DIR_PROG" ]; then
+    if [ "$1" = "--gerar" ] && command -v ffmpeg >/dev/null; then
+        t "GERANDO CENAS SINTÉTICAS"
+        mkdir -p "$DIR_PROG/vidA" "$DIR_PROG/vidB"
+        g() { ffmpeg -f lavfi -i "testsrc=duration=$2:size=320x240:rate=25" \
+                     -y "$1" -loglevel error 2>/dev/null; echo "  ${1#$BASE/}  ${2}s"; }
+        g "$DIR_PROG/vidA/cena_01.mp4" 3
+        g "$DIR_PROG/vidA/cena_02.mp4" 2
+        g "$DIR_PROG/vidA/cena_03.mp4" 0.5
+        g "$DIR_PROG/vidB/cena_04.mp4" 3
+        g "$DIR_PROG/vidB/cena_05.mp4" 2
+        if [ -n "$PROGRAM_ID_2" ]; then
+            mkdir -p "$BASE/$PROGRAM_ID_2/${VIDEO_ID_2:-vidX}"
+            g "$BASE/$PROGRAM_ID_2/${VIDEO_ID_2:-vidX}/cena_01.mp4" 2
+        fi
     else
-        printf "${VERM}✗ recusando apagar %s${FIM}\n" "$BASE"
-        echo "  O --limpar só remove o diretório sintético (/tmp/teste_refcap)."
-        echo "  Nunca apago cenas suas."
-    fi
-    exit 0
-fi
-
-# --------------------------------------------------------------------------- #
-# 1. O diretório já tem vídeos?
-# --------------------------------------------------------------------------- #
-titulo "INVENTÁRIO — $BASE"
-
-mkdir -p "$BASE"
-N_VIDEOS=$(find "$BASE" -type f -iname '*.mp4' 2>/dev/null | wc -l)
-SINTETICO=0
-
-if [ "$N_VIDEOS" -gt 0 ]; then
-    printf "  ${VERDE}✓ %d vídeo(s) encontrado(s) — usando os SEUS${FIM}\n" "$N_VIDEOS"
-    echo "    (nada será criado nem modificado)"
-else
-    printf "  ${AMAR}○ nenhum .mp4 aqui${FIM}\n"
-    command -v ffmpeg >/dev/null || {
-        printf "  ${VERM}✗ ffmpeg não encontrado — não posso gerar cenas${FIM}\n"
-        echo "    Aponte para um diretório com seus .mp4:"
-        echo "        bash preparar_teste.sh /caminho/das/suas/cenas"
+        printf "\n${R}✗ diretório não encontrado: %s${F}\n" "$DIR_PROG"
+        echo "  Ajuste BASE e PROGRAM_ID no teste_config.sh,"
+        echo "  ou rode:  bash preparar_teste.sh --gerar"
         exit 1
-    }
-    echo "  → gerando cenas sintéticas com ffmpeg"
-    SINTETICO=1
-    mkdir -p "$BASE/prog_teste/vidA" "$BASE/prog_teste/vidB" \
-             "$BASE/prog_teste/vazio" "$BASE/prog_outro/vidX"
-    criar() {
-        ffmpeg -f lavfi -i "testsrc=duration=$2:size=320x240:rate=25" \
-               -y "$1" -loglevel error 2>/dev/null
-        printf "    %-44s %ss\n" "${1#$BASE/}" "$2"
-    }
-    echo
-    criar "$BASE/prog_teste/vidA/cena_01.mp4" 3
-    criar "$BASE/prog_teste/vidA/cena_02.mp4" 2
-    criar "$BASE/prog_teste/vidA/cena_03.mp4" 0.5
-    criar "$BASE/prog_teste/vidB/cena_04.mp4" 3
-    criar "$BASE/prog_outro/vidX/cena_01.mp4" 2
+    fi
 fi
 
 # --------------------------------------------------------------------------- #
-# 2. Mapear <BASE>/{program}/{video}/{scene}.mp4
-# --------------------------------------------------------------------------- #
-titulo "ESTRUTURA DETECTADA"
+t "CENAS ENCONTRADAS"
 
-MAPA=$(python3 - "$BASE" <<'PYEOF'
+MAPA=$(python3 - "$DIR_PROG" "$VIDEO_IDS" "$MAX_CENAS" <<'PYEOF'
 import pathlib, subprocess, sys
-base = pathlib.Path(sys.argv[1]).resolve()
+raiz = pathlib.Path(sys.argv[1])
+filtro = [v for v in sys.argv[2].split() if v]
+limite = int(sys.argv[3] or 0)
 
-def duracao(p):
-    """Duração do STREAM de vídeo — é o que o RefCap lê, e difere do player."""
+def dur(p):
+    """Duração do STREAM — é o que o RefCap lê, e difere do player."""
     try:
-        r = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=duration", "-of", "csv=p=0", str(p)],
-            capture_output=True, text=True, timeout=20)
+        r = subprocess.run(["ffprobe","-v","error","-select_streams","v:0",
+                            "-show_entries","stream=duration","-of","csv=p=0",str(p)],
+                           capture_output=True, text=True, timeout=20)
         return float(r.stdout.strip())
     except Exception:
         return -1.0
 
-for p in sorted(base.rglob("*.mp4")):
-    rel = p.relative_to(base).parts
-    if len(rel) >= 3:      # {program}/{video}/{scene}.mp4
-        program, video = rel[-3], rel[-2]
-    elif len(rel) == 2:    # {program}/{scene}.mp4
-        program, video = rel[0], ""
-    else:
-        program, video = "", ""
-    print(f"{program}|{video}|{p.stem}|{p}|{duracao(p):.3f}")
+dirs = sorted(d for d in raiz.iterdir() if d.is_dir())
+if filtro:
+    dirs = [d for d in dirs if d.name in filtro]
+
+linhas = []
+for d in dirs:
+    for f in sorted(d.glob("*.mp4")):
+        linhas.append((d.name, f.stem, str(f), dur(f)))
+
+if limite > 0:
+    # ★ Distribui o limite ENTRE os diretórios, em vez de cortar no primeiro.
+    # Cortar direto deixaria o segundo diretório de fora — e sem ele não há
+    # como testar o agrupamento.
+    por_dir = {}
+    for v, s, c, du in linhas:
+        por_dir.setdefault(v, []).append((v, s, c, du))
+    saida, i = [], 0
+    while len(saida) < limite:
+        avancou = False
+        for v in por_dir:
+            if i < len(por_dir[v]) and len(saida) < limite:
+                saida.append(por_dir[v][i]); avancou = True
+        if not avancou: break
+        i += 1
+    linhas = saida
+
+for v, s, c, du in linhas:
+    print(f"{v}|{s}|{c}|{du:.3f}")
 PYEOF
 )
 
-[ -z "$MAPA" ] && { printf "  ${VERM}✗ nenhum vídeo mapeado${FIM}\n"; exit 1; }
+[ -z "$MAPA" ] && { printf "${R}✗ nenhum .mp4 em %s${F}\n" "$DIR_PROG"; exit 1; }
 
-printf "  %-16s %-12s %-20s %9s %7s\n" "program_id" "video_id" "scene_id" "duração" "frames"
-echo "  ──────────────────────────────────────────────────────────────────────"
-echo "$MAPA" | head -25 | while IFS='|' read -r prog vid cena caminho dur; do
-    info=$(python3 -c "
-d=$dur
-print(f\"{max(1,int(d)) if d>0 else '?'}|{' <-- < 1s' if 0<d<1 else ''}\")" 2>/dev/null)
-    fr="${info%%|*}"; aviso="${info##*|}"
-    printf "  %-16s %-12s %-20s %8.3fs %6s%s\n" "$prog" "$vid" "$cena" "$dur" "$fr" "$aviso"
+printf "  %-14s %-22s %9s %7s\n" "video_id" "scene_id" "duração" "frames"
+echo "  ─────────────────────────────────────────────────────────"
+echo "$MAPA" | while IFS='|' read -r v s c d; do
+    fr=$(python3 -c "print(max(1,int($d)) if $d>0 else '?')" 2>/dev/null)
+    av=$(python3 -c "print(' <-- <1s' if 0<$d<1 else '')" 2>/dev/null)
+    printf "  %-14s %-22s %8.3fs %6s%s\n" "$v" "$s" "$d" "$fr" "$av"
 done
-TOT=$(echo "$MAPA" | wc -l)
-[ "$TOT" -gt 25 ] && echo "  ... e mais $((TOT-25))"
+
+N_TOTAL=$(echo "$MAPA" | wc -l)
+N_DIRS=$(echo "$MAPA" | cut -d'|' -f1 | sort -u | wc -l)
 
 # --------------------------------------------------------------------------- #
-# 3. Escolher a cena de cada PAPEL
-# --------------------------------------------------------------------------- #
-titulo "PAPÉIS DO TESTE"
+t "PAPÉIS — como as cenas foram divididas"
 
-PAPEIS=$(python3 - <<PYEOF
-from collections import defaultdict
+eval "$(python3 - <<PYEOF
 linhas = [l.split("|") for l in """$MAPA""".strip().splitlines() if l.strip()]
-por_prog = defaultdict(lambda: defaultdict(list))
-for prog, vid, cena, cam, dur in linhas:
-    por_prog[prog][vid].append((cena, cam, float(dur)))
+por_dir = {}
+for v, s, c, d in linhas:
+    por_dir.setdefault(v, []).append((s, c, float(d)))
 
-# ★ O programa PRINCIPAL é o mais RICO — não o primeiro em ordem alfabética.
-# Ele precisa preencher o máximo de papéis: várias cenas, vários diretórios,
-# e de preferência uma cena curta. Ordenar por nome pegaria um programa com
-# uma cena só e deixaria metade dos testes sem cenário.
-def riqueza(prog):
-    vids = por_prog[prog]
-    n_cenas = sum(len(v) for v in vids.values())
-    tem_curta = any(0 < d < 1.0 for v in vids.values() for _, _, d in v)
-    return (len(vids), n_cenas, tem_curta)
+dirs = sorted(por_dir)
+dA = dirs[0]
+dB = dirs[1] if len(dirs) > 1 else ""
 
-progs = sorted(por_prog, key=riqueza, reverse=True)
-prog1 = progs[0] if progs else ""
-prog2 = progs[1] if len(progs) > 1 else ""
+A = por_dir[dA]
+B = por_dir[dB] if dB else []
 
-# vidA é o diretório com MAIS cenas (para ter A1 e A2); vidB é outro qualquer
-vids = sorted(por_prog[prog1], key=lambda v: len(por_prog[prog1][v]), reverse=True) if prog1 else []
-vidA  = vids[0] if vids else ""
-vidB  = vids[1] if len(vids) > 1 else ""
-cenasA = por_prog[prog1][vidA] if vidA else []
-cenasB = por_prog[prog1][vidB] if vidB else []
-
-def emitir(nome, t, vid):
+def emit(nome, t, vid):
     if t:
-        c, cam, d = t
-        print(f'{nome}_ID={c}\n{nome}_VID={vid}\n{nome}_PATH={cam}\n{nome}_DUR={d:.3f}')
+        s, c, d = t
+        print(f'{nome}_SID="{s}"; {nome}_VID="{vid}"; {nome}_PATH="{c}"; {nome}_DUR="{d:.3f}"')
     else:
-        print(f'{nome}_ID=\n{nome}_VID=\n{nome}_PATH=\n{nome}_DUR=')
+        print(f'{nome}_SID=""; {nome}_VID=""; {nome}_PATH=""; {nome}_DUR=""')
 
-emitir("CENA_A1", cenasA[0] if len(cenasA) > 0 else None, vidA)
-emitir("CENA_A2", cenasA[1] if len(cenasA) > 1 else None, vidA)
-emitir("CENA_B1", cenasB[0] if len(cenasB) > 0 else None, vidB)
+# UNICA: a cena do POST /caption e dos testes de cache
+emit("UNICA",  A[0] if len(A) > 0 else None, dA)
+# LOTE_A1/A2: duas do MESMO diretório
+emit("LOTE_A1", A[1] if len(A) > 1 else (A[0] if A else None), dA)
+emit("LOTE_A2", A[2] if len(A) > 2 else (A[1] if len(A) > 1 else None), dA)
+# LOTE_B1: de OUTRO diretório -> agrupamento
+emit("LOTE_B1", B[0] if B else None, dB)
 
-curtas = [(c, cam, d, v) for v in por_prog[prog1]
-          for c, cam, d in por_prog[prog1][v] if 0 < d < 1.0]
+# a cena curta, se houver
+curtas = [(s, c, d, v) for v in por_dir for s, c, d in por_dir[v] if 0 < d < 1.0]
 if curtas:
-    c, cam, d, v = min(curtas, key=lambda x: x[2])
-    print(f'CENA_CURTA_ID={c}\nCENA_CURTA_VID={v}\nCENA_CURTA_PATH={cam}\nCENA_CURTA_DUR={d:.3f}')
+    s, c, d, v = min(curtas, key=lambda x: x[2])
+    print(f'CURTA_SID="{s}"; CURTA_VID="{v}"; CURTA_PATH="{c}"; CURTA_DUR="{d:.3f}"')
 else:
-    print('CENA_CURTA_ID=\nCENA_CURTA_VID=\nCENA_CURTA_PATH=\nCENA_CURTA_DUR=')
+    print('CURTA_SID=""; CURTA_VID=""; CURTA_PATH=""; CURTA_DUR=""')
 
-ids1 = {c for v in por_prog[prog1] for c, _, _ in por_prog[prog1][v]}
-achou = None
-for v in sorted(por_prog.get(prog2, {})):
-    for c, cam, d in por_prog[prog2][v]:
-        if c in ids1:
-            achou = (c, cam, v, "1"); break
-    if achou: break
-if not achou and prog2:
-    v = sorted(por_prog[prog2])[0]
-    c, cam, d = por_prog[prog2][v][0]
-    achou = (c, cam, v, "0")
-if achou:
-    c, cam, v, rep = achou
-    print(f'CENA_P2_ID={c}\nCENA_P2_VID={v}\nCENA_P2_PATH={cam}\nCENA_P2_REPETIDO={rep}')
-else:
-    print('CENA_P2_ID=\nCENA_P2_VID=\nCENA_P2_PATH=\nCENA_P2_REPETIDO=0')
-
-print(f'PROG={prog1}\nPROG2={prog2}')
+# TODAS: para o lote grande e o assíncrono
+todas = [f"{v}:{s}:{c}" for v in dirs for s, c, _ in por_dir[v]]
+print(f'TODAS="{chr(32).join(todas)}"')
+print(f'N_CENAS={len(todas)}; N_DIRS={len(dirs)}; DIR_A="{dA}"; DIR_B="{dB}"')
 PYEOF
-)
+)"
 
-# carrega os papéis como variáveis
-while IFS='=' read -r k v; do [ -n "$k" ] && eval "$k=\"\$v\""; done <<< "$PAPEIS"
+p() {  # p <papel> <valor> <descrição>
+    if [ -n "$2" ]; then printf "  ${V}✓${F} %-11s %-24s %s\n" "$1" "$2" "$3"
+    else printf "  ${A}○${F} %-11s %-24s %s\n" "$1" "(ausente)" "$3"; fi
+}
+p "UNICA"   "$UNICA_SID"   "POST /caption + testes de cache"
+p "LOTE_A1" "$LOTE_A1_SID" "lote — mesmo diretório"
+p "LOTE_A2" "$LOTE_A2_SID" "lote — mesmo diretório"
+p "LOTE_B1" "$LOTE_B1_SID" "★ OUTRO diretório — agrupamento"
+p "CURTA"   "$CURTA_SID"   "★ < 1s — patch do viddataset"
+echo
+printf "  %-13s %s cena(s) em %s diretório(s)\n" "total:" "$N_CENAS" "$N_DIRS"
 
-# diretório vazio, para o SCENE_NOT_FOUND
-DIR_VAZIO=""
-for d in "$BASE/$PROG"/*/; do
-    [ -d "$d" ] || continue
-    [ "$(find "$d" -maxdepth 1 -iname '*.mp4' 2>/dev/null | wc -l)" -eq 0 ] && { DIR_VAZIO="${d%/}"; break; }
-done
-if [ -z "$DIR_VAZIO" ]; then
-    # ★ Criado em /tmp, NUNCA dentro das suas cenas.
-    # A versão anterior o criava em $BASE/$PROG/ — o que contradizia a
-    # promessa de "nada será criado nem modificado" quando as cenas são suas.
-    DIR_VAZIO="/tmp/refcap_dir_vazio_para_teste"
-    mkdir -p "$DIR_VAZIO"; CRIEI_VAZIO=1
+# --------------------------------------------------------------------------- #
+# Segundo programa, para o isolamento
+ISO_SID=""; ISO_VID=""; ISO_PATH=""
+if [ -n "$PROGRAM_ID_2" ]; then
+    D2="$BASE/$PROGRAM_ID_2/${VIDEO_ID_2}"
+    [ -z "$VIDEO_ID_2" ] && D2=$(find "$BASE/$PROGRAM_ID_2" -mindepth 1 -maxdepth 1 -type d | head -1)
+    if [ -d "$D2" ]; then
+        # de preferência uma cena com o MESMO scene_id da UNICA — é o caso que
+        # provaria o vazamento de cache, se houvesse
+        CAND="$D2/$UNICA_SID.mp4"
+        [ -f "$CAND" ] || CAND=$(find "$D2" -maxdepth 1 -name '*.mp4' | head -1)
+        if [ -f "$CAND" ]; then
+            ISO_PATH="$CAND"; ISO_SID=$(basename "$CAND" .mp4); ISO_VID=$(basename "$D2")
+        fi
+    fi
+fi
+if [ -n "$ISO_SID" ]; then
+    MESMO=$([ "$ISO_SID" = "$UNICA_SID" ] && echo "1" || echo "0")
+    printf "  ${V}✓${F} %-11s %-24s %s\n" "ISOLAMENTO" "$PROGRAM_ID_2/$ISO_SID" \
+        "$([ "$MESMO" = "1" ] && echo '★ MESMO scene_id — teste completo' || echo 'scene_id diferente')"
+else
+    MESMO=0
+    printf "  ${A}○${F} %-11s %-24s %s\n" "ISOLAMENTO" "(ausente)" "sem PROGRAM_ID_2"
 fi
 
-papel() {
-    if [ -n "$2" ]; then printf "  ${VERDE}✓${FIM} %-13s %-24s %s\n" "$1" "$2" "$3"
-    else printf "  ${AMAR}○${FIM} %-13s %-24s %s\n" "$1" "(não encontrado)" "$3"; fi
-}
-papel "CENA_A1"    "$CENA_A1_ID"    "caminho feliz + testes de cache"
-papel "CENA_A2"    "$CENA_A2_ID"    "lote no MESMO diretório"
-papel "CENA_B1"    "$CENA_B1_ID"    "★ OUTRO diretório — agrupamento"
-papel "CENA_CURTA" "$CENA_CURTA_ID" "★ < 1s — patch do viddataset"
-papel "CENA_P2"    "$CENA_P2_ID"    "★ outro program_id — isolamento"
-echo
-printf "  ${VERDE}✓${FIM} %-13s %s\n" "DIR_VAZIO" "$DIR_VAZIO"
-[ -n "$CRIEI_VAZIO" ] && echo "                (criado agora, vazio de propósito)"
-[ "$CENA_P2_REPETIDO" = "1" ] && echo && printf "  ${VERDE}★${FIM} o scene_id '%s' existe nos DOIS programas — o teste de\n    isolamento fica completo.\n" "$CENA_P2_ID"
+# diretório vazio, em /tmp — nunca dentro das suas cenas
+DIR_VAZIO="/tmp/refcap_teste_dir_vazio"; mkdir -p "$DIR_VAZIO"
 
 # --------------------------------------------------------------------------- #
-# 4. Gravar a configuração
-# --------------------------------------------------------------------------- #
-DIR_UM_VIDEO=""
-[ -n "$CENA_B1_PATH" ] && DIR_UM_VIDEO="$(dirname "$CENA_B1_PATH")"
-
-cat > "$CONFIG" <<CFG
+cat > "$PAPEIS" <<CFG
 #!/usr/bin/env bash
-# =============================================================================
-# teste_config.sh — GERADO por preparar_teste.sh em $(date '+%Y-%m-%d %H:%M')
-#
-# ★ ESTE ARQUIVO É SEU PARA EDITAR.
-#   Se a descoberta escolheu cenas diferentes das que você quer testar,
-#   troque os valores abaixo. O teste_manual.sh lê daqui — não precisa rodar
-#   o preparar_teste.sh de novo.
-#
-# Cada CENA_* tem três campos:
-#     _ID    o scene_id que vai na requisição
-#     _VID   o video_id
-#     _PATH  o caminho completo do .mp4
-#
-# Deixar um _ID vazio faz os testes daquele papel serem PULADOS, não falharem.
-# =============================================================================
+# GERADO por preparar_teste.sh em $(date '+%Y-%m-%d %H:%M') — não edite à mão.
+# Para mudar as cenas, ajuste o teste_config.sh e rode o preparador de novo.
 
-BASE="$BASE"
-API="\${API:-http://localhost:8000}"
+API="$API"
+TIMEOUT="$TIMEOUT"
+LIMIAR_ASSINCRONO="$LIMIAR_ASSINCRONO"
+PROGRAM_ID="$PROGRAM_ID"
+PROGRAM_ID_2="$PROGRAM_ID_2"
 
-# Os program_id (o collection do RefCap é derivado daqui)
-PROG="$PROG"
-PROG2="$PROG2"
+# a cena do POST /caption e dos testes de cache
+UNICA_SID="$UNICA_SID"; UNICA_VID="$UNICA_VID"; UNICA_PATH="$UNICA_PATH"
 
-# ── CENA_A1 — caminho feliz; usada também nos testes de cache ──
-CENA_A1_ID="$CENA_A1_ID"
-CENA_A1_VID="$CENA_A1_VID"
-CENA_A1_PATH="$CENA_A1_PATH"
+# duas do MESMO diretório
+LOTE_A1_SID="$LOTE_A1_SID"; LOTE_A1_VID="$LOTE_A1_VID"; LOTE_A1_PATH="$LOTE_A1_PATH"
+LOTE_A2_SID="$LOTE_A2_SID"; LOTE_A2_VID="$LOTE_A2_VID"; LOTE_A2_PATH="$LOTE_A2_PATH"
 
-# ── CENA_A2 — outra cena no MESMO diretório de A1 ──
-CENA_A2_ID="$CENA_A2_ID"
-CENA_A2_VID="$CENA_A2_VID"
-CENA_A2_PATH="$CENA_A2_PATH"
+# de OUTRO diretório — o agrupamento
+LOTE_B1_SID="$LOTE_B1_SID"; LOTE_B1_VID="$LOTE_B1_VID"; LOTE_B1_PATH="$LOTE_B1_PATH"
 
-# ── CENA_B1 — ★ em OUTRO diretório: prova o agrupamento (2 builds) ──
-CENA_B1_ID="$CENA_B1_ID"
-CENA_B1_VID="$CENA_B1_VID"
-CENA_B1_PATH="$CENA_B1_PATH"
+# menos de 1s — o patch do viddataset
+CURTA_SID="$CURTA_SID"; CURTA_VID="$CURTA_VID"; CURTA_PATH="$CURTA_PATH"; CURTA_DUR="$CURTA_DUR"
 
-# ── CENA_CURTA — ★ < 1s: prova o patch max(1,int(duration)) ──
-#    Vazio = teste pulado. Para exercitá-lo, aponte para um clipe curto.
-CENA_CURTA_ID="$CENA_CURTA_ID"
-CENA_CURTA_VID="$CENA_CURTA_VID"
-CENA_CURTA_PATH="$CENA_CURTA_PATH"
-CENA_CURTA_DUR="$CENA_CURTA_DUR"
+# outro programa — o isolamento de cache
+ISO_SID="$ISO_SID"; ISO_VID="$ISO_VID"; ISO_PATH="$ISO_PATH"; ISO_MESMO_SID="$MESMO"
 
-# ── CENA_P2 — ★ em OUTRO program_id: prova o isolamento de cache ──
-#    Ideal: mesmo scene_id de alguma cena do PROG.  Repetido? $CENA_P2_REPETIDO
-CENA_P2_ID="$CENA_P2_ID"
-CENA_P2_VID="$CENA_P2_VID"
-CENA_P2_PATH="$CENA_P2_PATH"
-CENA_P2_REPETIDO="$CENA_P2_REPETIDO"
+# todas as cenas, no formato video:scene:path
+TODAS="$TODAS"
+N_CENAS=$N_CENAS
+N_DIRS=$N_DIRS
 
-# ── DIR_VAZIO — diretório SEM vídeos: prova o SCENE_NOT_FOUND ──
 DIR_VAZIO="$DIR_VAZIO"
-
-# ── DIR_COM_VIDEO — ★ prova que o fallback perigoso foi removido ──
-#    Um diretório COM vídeos, onde pediremos um scene_id INEXISTENTE.
-#    Antes da Etapa 2, a API legendava o vídeo errado em silêncio.
-DIR_COM_VIDEO="$DIR_UM_VIDEO"
-
-# 1 = cenas geradas por ffmpeg;  0 = cenas suas
-SINTETICO=$SINTETICO
+DIR_COM_VIDEO="\$(dirname "$UNICA_PATH")"
 CFG
 
-titulo "CONFIGURAÇÃO GRAVADA"
-echo "  $CONFIG"
+t "PRONTO"
+echo "  mapa gravado em: $PAPEIS"
 echo
-if [ "$SINTETICO" = "1" ]; then
-    echo "  Cenas SINTÉTICAS (geradas agora)."
-else
-    printf "  ${VERDE}Cenas SUAS${FIM} — nada foi criado nem modificado.\n"
-fi
-echo
-echo "  ★ ABRA o arquivo e confira os papéis. Para testar outras cenas, é só"
-echo "    trocar os valores — não precisa rodar este script de novo."
-echo
-echo "  Depois:  bash teste_manual.sh"
+[ "$N_DIRS" -lt 2 ] && printf "  ${A}⚠️  só 1 diretório — o teste de AGRUPAMENTO será pulado.${F}\n     Informe dois VIDEO_IDS no teste_config.sh para exercitá-lo.\n\n"
+[ -z "$CURTA_SID" ] && printf "  ${A}⚠️  nenhuma cena com menos de 1s — esse teste será pulado.${F}\n\n"
+echo "  Agora:  bash teste_manual.sh"

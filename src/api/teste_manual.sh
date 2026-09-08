@@ -1,420 +1,407 @@
 #!/usr/bin/env bash
 # =============================================================================
-# teste_manual.sh — 18 casos contra a API rodando, usando as SUAS cenas
+# teste_manual.sh — as combinações de POST /caption e POST /caption/batch
 #
 # PRÉ-REQUISITOS
-#   1. bash preparar_teste.sh [/caminho/das/suas/cenas]
-#      → gera o teste_config.sh, que você pode EDITAR
-#   2. o serviço no ar, COM os modelos:
-#          cd api && python app.py
+#   1. preencher o teste_config.sh
+#   2. bash preparar_teste.sh
+#   3. o serviço no ar, COM os modelos
 #
 # USO
-#   bash teste_manual.sh                     # a bateria inteira
-#   bash teste_manual.sh 10                  # só o caso 10
-#   API=http://outro:8000 bash teste_manual.sh
-#   CONFIG=/outro/config.sh bash teste_manual.sh
+#     bash teste_manual.sh          # tudo, em série
+#     bash teste_manual.sh 7        # só o caso 7
 #
-# ★ AS CENAS VÊM DO teste_config.sh — nada é hardcoded aqui.
-#   Um papel vazio no config faz seus testes serem PULADOS, não falharem.
+# ★ NATUREZA EM SÉRIE
+#   Cada requisição só é disparada depois que a anterior devolveu resposta.
+#   Não há paralelismo: o `curl` é bloqueante e os casos rodam em sequência.
+#   Vários casos DEPENDEM do anterior (o cache do 6 vem do 5; o force do 7
+#   precisa do 6). Por isso, rodar um caso isolado pode dar resultado
+#   diferente de rodá-lo na sequência.
 #
-# ★ O CASO 3 (assíncrono) precisa de REFCAP_LIMIAR_ASSINCRONO=2 no serviço.
-#   Com o default (30), ele é pulado — reinicie com o limiar baixo para
-#   exercitá-lo sem precisar de 31 cenas.
+# ★ SÓ OS DOIS FORMATOS ESSENCIAIS
+#     POST /caption        { scene_id, video_id, program_id, scene_video_path }
+#     POST /caption/batch  { items: [ {...}, ... ] }
+#   Campos extras (force, assincrono, callback_url) só onde o teste exige.
 # =============================================================================
 
-CONFIG="${CONFIG:-$(cd "$(dirname "$0")" && pwd)/teste_config.sh}"
-SO_ESTE="${1:-}"
+AQUI="$(cd "$(dirname "$0")" && pwd)"
+PAPEIS="${PAPEIS:-$AQUI/teste_papeis.sh}"
+SO="${1:-}"
 
-VERDE='\033[0;32m'; VERM='\033[0;31m'; AMAR='\033[0;33m'; AZUL='\033[0;36m'; FIM='\033[0m'
-PASSOU=0; FALHOU=0; PULADO=0
+# ⚠️ nomes de cor com 2 letras: R/A/V colidiriam com $R (corpo da resposta),
+# $A e $V usados no script. Foi o que embaralhou o resumo final.
+cV='\033[0;32m'; cR='\033[0;31m'; cA='\033[0;33m'; cC='\033[0;36m'; cF='\033[0m'
+OK=0; ERRO=0; PULO=0
 
-[ -f "$CONFIG" ] || {
-    printf "${VERM}✗ configuração não encontrada: %s${FIM}\n" "$CONFIG"
-    echo "  Rode primeiro:  bash preparar_teste.sh [/caminho/das/suas/cenas]"
-    exit 1
-}
+[ -f "$PAPEIS" ] || { printf "${cR}✗ falta o %s${cF}\n  Rode: bash preparar_teste.sh\n" "$PAPEIS"; exit 1; }
 # shellcheck disable=SC1090
-. "$CONFIG"
-API="${API:-http://localhost:8000}"
+. "$PAPEIS"
 
-# --------------------------------------------------------------------------- #
-titulo() { echo; echo "═══════════════════════════════════════════════════════════════════"; echo " $1"; echo "═══════════════════════════════════════════════════════════════════"; }
-pula()  { [ -n "$SO_ESTE" ] && [ "$SO_ESTE" != "$1" ]; }
-ok()    { PASSOU=$((PASSOU+1)); printf "  ${VERDE}✓${FIM} %s\n" "$1"; }
-nok()   { FALHOU=$((FALHOU+1)); printf "  ${VERM}✗${FIM} %s\n       %s\n" "$1" "$2"; }
-skip()  { PULADO=$((PULADO+1)); printf "  ${AMAR}○${FIM} %s\n       pulado: %s\n" "$1" "$2"; }
-det()   { printf "       ${AZUL}%s${FIM}\n" "$1"; }
+t()    { echo; echo "═══════════════════════════════════════════════════════════════════"; echo " $1"; echo "═══════════════════════════════════════════════════════════════════"; }
+pula() { [ -n "$SO" ] && [ "$SO" != "$1" ]; }
+ok()   { OK=$((OK+1));     printf "  ${cV}✓${cF} %s\n" "$1"; }
+nok()  { ERRO=$((ERRO+1)); printf "  ${cR}✗${cF} %s\n       %s\n" "$1" "$2"; }
+skip() { PULO=$((PULO+1)); printf "  ${cA}○${cF} %s\n       pulado: %s\n" "$1" "$2"; }
+det()  { printf "       ${cC}%s${cF}\n" "$1"; }
 
-# ⚠️ POR QUE ESTAS FUNÇÕES NÃO USAM $( )
-#
-# A versão anterior era chamada assim:   get /health
-# Isso roda a função num SUBSHELL — e a atribuição `HTTP=...` feita lá dentro
-# NÃO propaga para o shell pai. O $HTTP ficava vazio, o script concluía "não
-# respondeu", e o diagnóstico (rodando no pai) via HTTP 200. Sintoma clássico
-# e confuso: o curl à mão funciona, o script diz que não.
-#
-# A correção: as funções gravam o corpo num arquivo temporário e definem
-# DUAS variáveis globais — $HTTP e $R. São chamadas SEM $( ), então rodam no
-# shell atual e as duas propagam.
-#
-#     post '{"...":"..."}'  ->  define $HTTP e $R
-#     get  /health          ->  idem
+# ⚠️ As funções definem $HTTP e $R e são chamadas SEM $( ) — dentro de uma
+# substituição de comando elas rodariam num subshell e as variáveis não
+# propagariam para cá.
+_B=$(mktemp); trap 'rm -f "$_B"' EXIT
 
-_CORPO=$(mktemp); trap 'rm -f "$_CORPO"' EXIT
-
-post() {   # post <json> [sufixo-da-rota]
-    HTTP=$(curl -s -o "$_CORPO" -w '%{http_code}' --max-time 600 -X POST "$API/caption$2" -H 'Content-Type: application/json' -d "$1" 2>/dev/null)
-    R=$(cat "$_CORPO")
+POST() {  # POST <rota> <json>
+    HTTP=$(curl -s -o "$_B" -w '%{http_code}' --max-time "$TIMEOUT" \
+           -X POST "$API$1" -H 'Content-Type: application/json' -d "$2" 2>/dev/null)
+    R=$(cat "$_B")
 }
-
-get() {    # get <rota>
-    HTTP=$(curl -s -o "$_CORPO" -w '%{http_code}' --max-time 120 "$API$1" 2>/dev/null)
-    R=$(cat "$_CORPO")
+GET() {
+    HTTP=$(curl -s -o "$_B" -w '%{http_code}' --max-time "$TIMEOUT" "$API$1" 2>/dev/null)
+    R=$(cat "$_B")
 }
+J() { echo "$1" | python3 -c "import sys,json;d=json.load(sys.stdin);print($2)" 2>/dev/null; }
 
-jqp() { echo "$1" | python3 -c "import sys,json;d=json.load(sys.stdin);print($2)" 2>/dev/null; }
-
-# item <ID> <VID> <PATH> [extras json]
+# item <sid> <vid> <path> [program_id]
 item() {
-    printf '{"scene_id":"%s","video_id":"%s","program_id":"%s","scene_video_path":"%s"%s}' \
-           "$1" "$2" "${5:-$PROG}" "$3" "${4:+,$4}"
+    printf '{"scene_id":"%s","video_id":"%s","program_id":"%s","scene_video_path":"%s"}' \
+           "$1" "$2" "${4:-$PROGRAM_ID}" "$3"
 }
 
-# --------------------------------------------------------------------------- #
-titulo "CONFIGURAÇÃO EM USO"
-printf "  %-14s %s\n" "config"   "$CONFIG"
-printf "  %-14s %s\n" "API"      "$API"
-printf "  %-14s %s\n" "BASE"     "$BASE"
-# ★ As cenas podem estar em QUALQUER lugar: o caminho vai absoluto na
-#   requisição, e a API deriva o video_root dele. Não precisam estar
-#   perto do api/ nem sob o RefCap.
-printf "  %-14s %s\n" "PROG"     "$PROG"
-printf "  %-14s %s\n" "PROG2"    "${PROG2:-—}"
+# =============================================================================
+t "CONFIGURAÇÃO"
+printf "  %-16s %s\n" "API"        "$API"
+printf "  %-16s %s\n" "program_id" "$PROGRAM_ID"
+printf "  %-16s %s cena(s) em %s diretório(s)\n" "cenas" "$N_CENAS" "$N_DIRS"
 echo
-printf "  %-14s %-22s %s\n" "papel" "scene_id" "video_id"
-echo "  ──────────────────────────────────────────────────────"
-printf "  %-14s %-22s %s\n" "CENA_A1"    "${CENA_A1_ID:-—}"    "${CENA_A1_VID:-—}"
-printf "  %-14s %-22s %s\n" "CENA_A2"    "${CENA_A2_ID:-—}"    "${CENA_A2_VID:-—}"
-printf "  %-14s %-22s %s\n" "CENA_B1"    "${CENA_B1_ID:-—}"    "${CENA_B1_VID:-—}"
-printf "  %-14s %-22s %s\n" "CENA_CURTA" "${CENA_CURTA_ID:-—}" "${CENA_CURTA_DUR:+${CENA_CURTA_DUR}s}"
-printf "  %-14s %-22s %s\n" "CENA_P2"    "${CENA_P2_ID:-—}"    "${CENA_P2_VID:-—}"
+printf "  %-11s %-20s %s\n" "papel" "scene_id" "video_id"
+echo "  ────────────────────────────────────────────────"
+printf "  %-11s %-20s %s\n" "UNICA"   "${UNICA_SID:-—}"   "${UNICA_VID:-—}"
+printf "  %-11s %-20s %s\n" "LOTE_A1" "${LOTE_A1_SID:-—}" "${LOTE_A1_VID:-—}"
+printf "  %-11s %-20s %s\n" "LOTE_A2" "${LOTE_A2_SID:-—}" "${LOTE_A2_VID:-—}"
+printf "  %-11s %-20s %s\n" "LOTE_B1" "${LOTE_B1_SID:-—}" "${LOTE_B1_VID:-—}"
+printf "  %-11s %-20s %s\n" "CURTA"   "${CURTA_SID:-—}"   "${CURTA_DUR:+${CURTA_DUR}s}"
+printf "  %-11s %-20s %s\n" "ISOLAM." "${ISO_SID:-—}"     "${PROGRAM_ID_2:-—}"
 
-# --------------------------------------------------------------------------- #
-titulo "PRÉ-VOO"
-
-command -v curl >/dev/null || {
-    printf "  ${VERM}✗ curl não encontrado${FIM}\n"
-    echo "    Instale o curl, ou rode os testes pelo TESTES_CURL.md com outra ferramenta."
-    exit 1
-}
-
-get /health
+# =============================================================================
+t "PRÉ-VOO"
+command -v curl >/dev/null || { printf "  ${cR}✗ curl não encontrado${cF}\n"; exit 1; }
+GET /health
 if [ "$HTTP" != "200" ]; then
-    printf "  ${VERM}✗ o serviço não respondeu em %s${FIM}\n" "$API"
-    echo
-    echo "  ⚠️ ISTO NÃO TEM RELAÇÃO COM O CAMINHO DAS CENAS."
-    echo "     O pré-voo só chama GET /health — as cenas nem foram consultadas."
-    echo
-
-    # --- diagnóstico: por que falhou? ---
-    CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$API/health" 2>/dev/null)
-    ERRO=$(curl -s -o /dev/null --max-time 5 "$API/health" 2>&1)
-    case "$CODIGO" in
-        000) echo "  CAUSA: não houve conexão (código 000."
-             echo "         $ERRO"
-             echo
-             echo "  Verifique, nesta ordem:"
-             echo "    1. o serviço está no ar?"
-             echo "         cd api && python app.py"
-             echo "         (ou: supervisorctl status refcap-api)"
-             echo
-             echo "    2. é esta a porta? o default do app.py é 8000."
-             echo "         API=http://localhost:8080 bash teste_manual.sh"
-             echo
-             echo "    3. o serviço está noutra máquina ou container?"
-             echo "         API=http://IP_OU_HOST:8000 bash teste_manual.sh"
-             echo
-             echo "    4. teste à mão:"
-             echo "         curl -v $API/health"
-             ;;
-        404) echo "  CAUSA: o servidor respondeu, mas não tem a rota /health (404."
-             echo "         Há algo escutando em $API, mas não é a Caption API."
-             echo "         Confira a porta."
-             ;;
-        *)   echo "  CAUSA: o servidor respondeu com HTTP $CODIGO."
-             echo "         Veja o log do serviço."
-             ;;
-    esac
+    printf "  ${cR}✗ a API não respondeu em %s (HTTP %s)${cF}\n" "$API" "$HTTP"
+    echo "    Isto NÃO tem relação com as cenas — é só o GET /health."
+    echo "    Confira: o serviço está no ar? é esta a porta? (teste_config.sh)"
     exit 1
 fi
-PRONTO=$(jqp "$R" "d['models']['ready']")
-GPU_INI=$(jqp "$R" "d['models']['gpu'].get('allocated_mb','—')")
-echo "  serviço          : ok"
+PRONTO=$(J "$R" "d['models']['ready']")
+GPU0=$(J "$R" "d['models']['gpu'].get('allocated_mb','—')")
+echo "  API              : ok"
 echo "  models.ready     : $PRONTO"
-echo "  gpu.allocated_mb : $GPU_INI"
-[ "$PRONTO" = "True" ] || {
-    printf "\n  ${VERM}✗ modelos NÃO carregados${FIM} — suba sem REFCAP_CARREGAR_MODELOS=0\n"; exit 1
-}
+echo "  gpu.allocated_mb : $GPU0"
+[ "$PRONTO" = "True" ] || { printf "\n  ${cR}✗ modelos não carregados${cF} — suba sem REFCAP_CARREGAR_MODELOS=0\n"; exit 1; }
 
 # =============================================================================
-titulo "PARTE 1 — CAMINHO FELIZ"
+t "BLOCO 1 — POST /caption  (formato de cena única)"
 
+# --- 1. o caso base ---
 if ! pula 1; then
-    if [ -z "$CENA_A1_ID" ]; then skip "1. POST /caption (uma cena)" "CENA_A1 não configurada"
+    if [ -z "$UNICA_SID" ]; then skip "1. cena única" "sem cenas"
     else
-        post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH")"
-        S=$(jqp "$R" "d['items'][0]['status']"); C=$(jqp "$R" "d['items'][0]['scene_caption_en']")
-        if [ "$HTTP" = "200" ] && [ "$S" = "success" ] && [ -n "$C" ]; then
-            ok "1. POST /caption ($CENA_A1_ID)"
-            det "legenda : $C"
-            det "keywords: $(jqp "$R" "', '.join(k['token'] for k in d['items'][0]['keywords_en'])")"
+        POST /caption "$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH")"
+        S=$(J "$R" "d['items'][0]['status']"); CAP=$(J "$R" "d['items'][0]['scene_caption_en']")
+        if [ "$HTTP" = "200" ] && [ "$S" = "success" ] && [ -n "$CAP" ]; then
+            ok "1. POST /caption — $UNICA_SID"
+            det "state   : $(J "$R" "d['state']")"
+            det "summary : $(J "$R" "json.dumps(d['summary'])")"
+            det "legenda : $CAP"
+            det "keywords: $(J "$R" "', '.join(k['token'] for k in d['items'][0]['keywords_en'])")"
         else nok "1. POST /caption" "HTTP=$HTTP status=$S"; fi
     fi
 fi
 
+# --- 2. cena < 1s (o patch do viddataset) ---
 if ! pula 2; then
-    if [ -z "$CENA_A2_ID" ] || [ -z "$CENA_B1_ID" ]; then
-        skip "2. POST /caption/batch (2 diretórios)" "faltam CENA_A2 ou CENA_B1"
+    if [ -z "$CURTA_SID" ]; then skip "2. ★ cena com menos de 1s" "nenhuma no conjunto"
     else
-        post "{\"items\":[$(item "$CENA_A2_ID" "$CENA_A2_VID" "$CENA_A2_PATH"),$(item "$CENA_B1_ID" "$CENA_B1_VID" "$CENA_B1_PATH")]}" /batch
-        T=$(jqp "$R" "d['summary']['total']"); O=$(jqp "$R" "d['summary']['ok']"); G=$(jqp "$R" "len(d['groups'])")
-        if [ "$HTTP" = "200" ] && [ "$O" = "2" ] && [ "$G" = "2" ]; then
-            ok "2. POST /caption/batch — 2 cenas, 2 diretórios"
-            det "grupos: $G  ← um build() por diretório"
-        else nok "2. POST /caption/batch" "HTTP=$HTTP total=$T ok=$O grupos=$G (esperava 2 grupos)"; fi
-    fi
-fi
-
-if ! pula 3; then
-    if [ -z "$CENA_A1_ID" ]; then skip "3. assíncrono automático" "CENA_A1 não configurada"
-    else
-        post "{\"items\":[$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH"),$(item "${CENA_A2_ID:-$CENA_A1_ID}" "${CENA_A2_VID:-$CENA_A1_VID}" "${CENA_A2_PATH:-$CENA_A1_PATH}"),$(item "${CENA_B1_ID:-$CENA_A1_ID}" "${CENA_B1_VID:-$CENA_A1_VID}" "${CENA_B1_PATH:-$CENA_A1_PATH}")]}" /batch
-        if [ "$HTTP" = "202" ]; then
-            ok "3. assíncrono automático"
-            det "state=$(jqp "$R" "d['state']")  check_at=$(jqp "$R" "d['check_at']")"
-            sleep 8
-        else skip "3. assíncrono automático" "limiar alto — reinicie com REFCAP_LIMIAR_ASSINCRONO=2"; fi
-    fi
-fi
-
-if ! pula 4; then
-    if [ -z "$CENA_CURTA_ID" ]; then
-        skip "4. ★ vídeo curto (< 1s)" "nenhuma cena com menos de 1s no seu conjunto"
-    else
-        post "$(item "$CENA_CURTA_ID" "$CENA_CURTA_VID" "$CENA_CURTA_PATH")"
-        S=$(jqp "$R" "d['items'][0]['status']")
+        POST /caption "$(item "$CURTA_SID" "$CURTA_VID" "$CURTA_PATH")"
+        S=$(J "$R" "d['items'][0]['status']")
         if [ "$HTTP" = "200" ] && [ "$S" = "success" ]; then
-            ok "4. ★ vídeo de ${CENA_CURTA_DUR}s processado (patch do viddataset)"
-            det "legenda: $(jqp "$R" "d['items'][0]['scene_caption_en']")"
-        else nok "4. vídeo curto" "HTTP=$HTTP status=$S → o patch max(1,int(duration)) foi aplicado?"; fi
+            ok "2. ★ cena de ${CURTA_DUR}s — o patch max(1,int(duration))"
+            det "legenda: $(J "$R" "d['items'][0]['scene_caption_en']")"
+        else nok "2. cena curta" "HTTP=$HTTP status=$S — o patch foi aplicado?"; fi
+    fi
+fi
+
+# --- 3. caminho inexistente ---
+if ! pula 3; then
+    POST /caption "$(item "cena_fantasma" "vidX" "/caminho/que/nao/existe/x.mp4")"
+    E=$(J "$R" "d['items'][0]['error_code']")
+    if [ "$HTTP" = "200" ] && [ "$E" = "FILE_NOT_FOUND" ]; then
+        ok "3. caminho inexistente → FILE_NOT_FOUND"
+        det "HTTP 200 com o erro DENTRO do item — não 4xx"
+    else nok "3. FILE_NOT_FOUND" "HTTP=$HTTP error_code=$E"; fi
+fi
+
+# --- 4. diretório sem a cena ---
+if ! pula 4; then
+    POST /caption "$(item "cena_ausente" "vidX" "$DIR_VAZIO")"
+    E=$(J "$R" "d['items'][0]['error_code']")
+    [ "$E" = "SCENE_NOT_FOUND" ] && ok "4. diretório vazio → SCENE_NOT_FOUND" \
+        || nok "4. SCENE_NOT_FOUND" "error_code=$E"
+fi
+
+# --- 5. ★ o fallback removido ---
+if ! pula 5; then
+    if [ -z "$DIR_COM_VIDEO" ]; then skip "5. ★ fallback removido" "sem diretório de referência"
+    else
+        POST /caption "$(item "id_inexistente_ali" "vidX" "$DIR_COM_VIDEO")"
+        E=$(J "$R" "d['items'][0]['error_code']")
+        if [ "$E" = "SCENE_NOT_FOUND" ]; then
+            ok "5. ★ fallback removido — não legenda o vídeo errado"
+            det "pedi um scene_id inexistente num diretório que TEM vídeos"
+        else nok "5. fallback removido" "error_code=$E — deveria recusar"; fi
     fi
 fi
 
 # =============================================================================
-titulo "PARTE 2 — CACHE"
+t "BLOCO 2 — CACHE  (em série: 6 depende de 1; 7 depende de 6)"
 
-if ! pula 5; then
-    if [ -z "$CENA_A1_ID" ]; then skip "5. reprocessar sem force" "CENA_A1 não configurada"
-    else
-        T0=$(date +%s%N); post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH")"; T1=$(date +%s%N)
-        MS_SEM=$(( (T1-T0)/1000000 ))
-        S=$(jqp "$R" "d['items'][0]['status']"); CACHE=$(jqp "$R" "d['groups'][0].get('estavam_em_cache','?')")
-        if [ "$S" = "success" ]; then
-            ok "5. reprocessar SEM force — ${MS_SEM}ms"
-            det "estavam_em_cache: $CACHE   ← ≥1 significa que o BLIP não rodou"
-        else nok "5. reprocessar sem force" "status=$S"; fi
-    fi
-fi
-
+# --- 6. reprocessar: deve PULAR ---
 if ! pula 6; then
-    if [ -z "$CENA_A1_ID" ]; then skip "6. force: true" "CENA_A1 não configurada"
+    if [ -z "$UNICA_SID" ]; then skip "6. reprocessar (cache)" "sem cenas"
     else
         T0=$(date +%s%N)
-        post "$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH" '"force":true')"
-        T1=$(date +%s%N); MS_COM=$(( (T1-T0)/1000000 ))
-        S=$(jqp "$R" "d['items'][0]['status']")
+        POST /caption "$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH")"
+        T1=$(date +%s%N); MS_CACHE=$(( (T1-T0)/1000000 ))
+        S=$(J "$R" "d['items'][0]['status']")
+        EM=$(J "$R" "d['groups'][0].get('estavam_em_cache','?')")
         if [ "$S" = "success" ]; then
-            ok "6. force: true — ${MS_COM}ms"
-            det "cache_limpo: $(jqp "$R" "d['groups'][0].get('cache_limpo')")"
-            if [ -n "$MS_SEM" ] && [ "$MS_COM" -gt "$MS_SEM" ]; then
-                det "★ ${MS_COM}ms > ${MS_SEM}ms — reprocessou de verdade"
-            elif [ -n "$MS_SEM" ]; then
-                printf "       ${AMAR}⚠️  %sms NÃO é maior que %sms — o cache foi mesmo limpo?${FIM}\n" "$MS_COM" "$MS_SEM"
-            fi
-        else nok "6. force" "status=$S"; fi
+            ok "6. reprocessar SEM force — ${MS_CACHE}ms"
+            det "estavam_em_cache: $EM   ← 1 = o BLIP não rodou de novo"
+        else nok "6. reprocessar" "status=$S"; fi
     fi
 fi
 
+# --- 7. force: deve REPROCESSAR ---
 if ! pula 7; then
-    get "/caption/$PROG"; T=$(jqp "$R" "d['summary']['total']")
-    if [ -n "$T" ] && [ "$T" -ge 2 ]; then
-        ok "7. o force NÃO apagou as outras cenas"
-        det "cenas persistidas no $PROG: $T"
-    else nok "7. force cirúrgico" "só $T cena(s) — o force pode ter limpado demais"; fi
+    if [ -z "$UNICA_SID" ]; then skip "7. force" "sem cenas"
+    else
+        P=$(python3 -c "
+import json
+d = json.loads('''$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH")''')
+d['force'] = True
+print(json.dumps(d))")
+        T0=$(date +%s%N); POST /caption "$P"; T1=$(date +%s%N)
+        MS_FORCE=$(( (T1-T0)/1000000 ))
+        S=$(J "$R" "d['items'][0]['status']")
+        if [ "$S" = "success" ]; then
+            ok "7. force: true — ${MS_FORCE}ms"
+            det "cache_limpo: $(J "$R" "d['groups'][0].get('cache_limpo')")"
+            if [ -n "$MS_CACHE" ] && [ "$MS_FORCE" -gt "$MS_CACHE" ]; then
+                det "★ ${MS_FORCE}ms > ${MS_CACHE}ms — reprocessou de verdade"
+            elif [ -n "$MS_CACHE" ]; then
+                printf "       ${cA}⚠️  %sms não é maior que %sms — o cache foi limpo mesmo?${cF}\n" "$MS_FORCE" "$MS_CACHE"
+            fi
+        else nok "7. force" "status=$S"; fi
+    fi
 fi
 
 # =============================================================================
-titulo "PARTE 3 — ERROS"
+t "BLOCO 3 — POST /caption/batch  (formato items)"
 
+# --- 8. lote no MESMO diretório: 1 grupo ---
 if ! pula 8; then
-    post "$(item "cena_que_nao_existe" "vid" "$BASE/__nao_existe__/x.mp4")"
-    E=$(jqp "$R" "d['items'][0]['error_code']")
-    [ "$E" = "FILE_NOT_FOUND" ] && ok "8. FILE_NOT_FOUND" || nok "8. FILE_NOT_FOUND" "veio: $E"
+    if [ -z "$LOTE_A1_SID" ] || [ -z "$LOTE_A2_SID" ]; then
+        skip "8. lote — mesmo diretório" "precisa de 2 cenas no mesmo video_id"
+    else
+        POST /caption/batch "{\"items\":[$(item "$LOTE_A1_SID" "$LOTE_A1_VID" "$LOTE_A1_PATH"),$(item "$LOTE_A2_SID" "$LOTE_A2_VID" "$LOTE_A2_PATH")]}"
+        T=$(J "$R" "d['summary']['total']"); O=$(J "$R" "d['summary']['ok']"); G=$(J "$R" "len(d['groups'])")
+        if [ "$HTTP" = "200" ] && [ "$O" = "2" ] && [ "$G" = "1" ]; then
+            ok "8. lote de 2 no MESMO diretório"
+            det "grupos: $G  ← um só build(), como esperado"
+        else nok "8. lote mesmo diretório" "HTTP=$HTTP total=$T ok=$O grupos=$G (esperava 1 grupo)"; fi
+    fi
 fi
 
+# --- 9. ★ lote em diretórios DIFERENTES: N grupos ---
 if ! pula 9; then
-    if [ -z "$DIR_VAZIO" ]; then skip "9. SCENE_NOT_FOUND" "DIR_VAZIO não configurado"
+    if [ -z "$LOTE_B1_SID" ]; then
+        skip "9. ★ lote — diretórios diferentes" "só 1 diretório (informe 2 VIDEO_IDS)"
     else
-        post "$(item "cena_inexistente" "vid" "$DIR_VAZIO")"
-        E=$(jqp "$R" "d['items'][0]['error_code']")
-        [ "$E" = "SCENE_NOT_FOUND" ] && ok "9. SCENE_NOT_FOUND (diretório vazio)" || nok "9. SCENE_NOT_FOUND" "veio: $E"
+        POST /caption/batch "{\"items\":[$(item "$LOTE_A1_SID" "$LOTE_A1_VID" "$LOTE_A1_PATH"),$(item "$LOTE_B1_SID" "$LOTE_B1_VID" "$LOTE_B1_PATH")]}"
+        O=$(J "$R" "d['summary']['ok']"); G=$(J "$R" "len(d['groups'])")
+        if [ "$HTTP" = "200" ] && [ "$O" = "2" ] && [ "$G" = "2" ]; then
+            ok "9. ★ lote em 2 diretórios → 2 builds"
+            det "$(J "$R" "chr(10).join('       %s cena(s) em %s' % (g['cenas'], g['diretorio']) for g in d['groups'])")"
+        else nok "9. agrupamento" "HTTP=$HTTP ok=$O grupos=$G (esperava 2)"; fi
     fi
 fi
 
+# --- 10. lote de UMA cena só ---
 if ! pula 10; then
-    if [ -z "$DIR_COM_VIDEO" ]; then skip "10. ★ fallback removido" "DIR_COM_VIDEO não configurado"
+    if [ -z "$UNICA_SID" ]; then skip "10. lote de 1" "sem cenas"
     else
-        post "$(item "id_que_nao_existe_ali" "vid" "$DIR_COM_VIDEO")"
-        E=$(jqp "$R" "d['items'][0]['error_code']")
-        if [ "$E" = "SCENE_NOT_FOUND" ]; then
-            ok "10. ★ fallback removido — não legenda o vídeo errado"
-            det "pedi um scene_id inexistente em $DIR_COM_VIDEO (que TEM vídeos)"
-        else nok "10. fallback removido" "veio: $E — deveria recusar, não usar outro vídeo"; fi
+        POST /caption/batch "{\"items\":[$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH")]}"
+        O=$(J "$R" "d['summary']['ok']")
+        [ "$HTTP" = "200" ] && [ "$O" = "1" ] && ok "10. lote com UMA cena (borda)" \
+            || nok "10. lote de 1" "HTTP=$HTTP ok=$O"
     fi
 fi
 
+# --- 11. ★ erro parcial: uma ruim não derruba as outras ---
 if ! pula 11; then
-    post '{}'
-    { [ "$HTTP" = "400" ] || [ "$HTTP" = "422" ]; } \
-        && ok "11. INVALID_REQUEST (pedido vazio) — HTTP $HTTP" \
-        || nok "11. INVALID_REQUEST" "HTTP=$HTTP (esperava 400 ou 422)"
+    if [ -z "$LOTE_A1_SID" ]; then skip "11. ★ erro parcial" "sem cenas"
+    else
+        POST /caption/batch "{\"items\":[$(item "$LOTE_A1_SID" "$LOTE_A1_VID" "$LOTE_A1_PATH"),$(item "ruim" "vidX" "/nada/x.mp4"),$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH")]}"
+        O=$(J "$R" "d['summary']['ok']"); E=$(J "$R" "d['summary']['errors']")
+        if [ "$HTTP" = "200" ] && [ "$O" = "2" ] && [ "$E" = "1" ]; then
+            ok "11. ★ erro parcial não derruba o lote"
+            det "ok=$O errors=$E, e HTTP 200 — não 500"
+            det "o item ruim: $(J "$R" "[i['error_code'] for i in d['items'] if i['status']=='error'][0]")"
+        else nok "11. erro parcial" "HTTP=$HTTP ok=$O errors=$E"; fi
+    fi
 fi
 
+# --- 12. ★ cenas REPETIDAS no mesmo lote ---
 if ! pula 12; then
-    if [ -z "$CENA_A1_ID" ]; then skip "12. erro parcial no lote" "CENA_A1 não configurada"
+    if [ -z "$UNICA_SID" ]; then skip "12. cena repetida no lote" "sem cenas"
     else
-        post "{\"items\":[$(item "$CENA_A1_ID" "$CENA_A1_VID" "$CENA_A1_PATH"),$(item "cena_ruim" "vid" "/nada/x.mp4"),$(item "${CENA_A2_ID:-$CENA_A1_ID}" "${CENA_A2_VID:-$CENA_A1_VID}" "${CENA_A2_PATH:-$CENA_A1_PATH}")]}" /batch
-        O=$(jqp "$R" "d['summary']['ok']"); E=$(jqp "$R" "d['summary']['errors']")
-        if [ "$HTTP" = "200" ] && [ "$E" = "1" ]; then
-            ok "12. ★ erro parcial NÃO derruba o lote"
-            det "ok=$O errors=$E — e HTTP 200, não 500"
-        else nok "12. erro parcial" "HTTP=$HTTP ok=$O errors=$E"; fi
+        POST /caption/batch "{\"items\":[$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH"),$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH")]}"
+        T=$(J "$R" "d['summary']['total']")
+        if [ "$HTTP" = "200" ]; then
+            ok "12. mesma cena repetida no lote (borda)"
+            det "total=$T — o pipeline não quebra com duplicatas"
+        else nok "12. cena repetida" "HTTP=$HTTP"; fi
+    fi
+fi
+
+# --- 13. TODAS as cenas de uma vez ---
+if ! pula 13; then
+    ITENS=$(python3 - <<PYEOF
+import json
+todas = "$TODAS".split()
+out = []
+for t in todas:
+    v, s, c = t.split(":", 2)
+    out.append({"scene_id": s, "video_id": v,
+                "program_id": "$PROGRAM_ID", "scene_video_path": c})
+print(json.dumps({"items": out}))
+PYEOF
+)
+    POST /caption/batch "$ITENS"
+    T=$(J "$R" "d['summary']['total']"); O=$(J "$R" "d['summary']['ok']"); G=$(J "$R" "len(d['groups'])")
+    if [ "$HTTP" = "200" ] && [ "$O" = "$T" ]; then
+        ok "13. TODAS as $N_CENAS cenas num lote"
+        det "total=$T ok=$O grupos=$G"
+    elif [ "$HTTP" = "202" ]; then
+        skip "13. todas as cenas" "passou do limiar → virou assíncrono (veja o caso 14)"
+    else nok "13. lote completo" "HTTP=$HTTP total=$T ok=$O"; fi
+fi
+
+# --- 14. assíncrono acima do limiar ---
+if ! pula 14; then
+    if [ "$N_CENAS" -le "$LIMIAR_ASSINCRONO" ]; then
+        skip "14. assíncrono automático" "$N_CENAS cenas ≤ limiar $LIMIAR_ASSINCRONO — reinicie o serviço com REFCAP_LIMIAR_ASSINCRONO=2"
+    else
+        POST /caption/batch "$ITENS"
+        if [ "$HTTP" = "202" ]; then
+            ok "14. ★ acima do limiar → 202 assíncrono"
+            det "state=$(J "$R" "d['state']")  check_at=$(J "$R" "d['check_at']")"
+            sleep 10
+        else nok "14. assíncrono" "HTTP=$HTTP (esperava 202)"; fi
     fi
 fi
 
 # =============================================================================
-titulo "PARTE 4 — CONSULTA"
-
-if ! pula 13; then
-    get "/caption/$PROG"; T=$(jqp "$R" "d['summary']['total']")
-    { [ "$HTTP" = "200" ] && [ -n "$T" ] && [ "$T" -ge 1 ]; } \
-        && { ok "13. GET /caption/$PROG"; det "cenas: $T"; } \
-        || nok "13. GET todas" "HTTP=$HTTP total=$T"
-fi
-
-if ! pula 14; then
-    get "/caption/$PROG?scene_id=$CENA_A1_ID"; T=$(jqp "$R" "d['summary']['total']")
-    [ "$T" = "1" ] && ok "14. GET com 1 filtro" || nok "14. GET 1 filtro" "total=$T"
-fi
+t "BLOCO 4 — CONSULTA E PERSISTÊNCIA"
 
 if ! pula 15; then
-    if [ -z "$CENA_A2_ID" ]; then skip "15. GET com 2 filtros" "CENA_A2 não configurada"
-    else
-        get "/caption/$PROG?scene_id=$CENA_A1_ID&scene_id=$CENA_A2_ID"
-        T=$(jqp "$R" "d['summary']['total']")
-        [ "$T" = "2" ] && ok "15. GET com 2 filtros" || nok "15. GET 2 filtros" "total=$T"
-    fi
+    GET "/caption/$PROGRAM_ID"
+    T=$(J "$R" "d['summary']['total']")
+    if [ "$HTTP" = "200" ] && [ -n "$T" ] && [ "$T" -ge 1 ]; then
+        ok "15. GET /caption/$PROGRAM_ID — o persistido"
+        det "cenas gravadas: $T"
+    else nok "15. GET todas" "HTTP=$HTTP total=$T"; fi
 fi
 
 if ! pula 16; then
-    get "/caption/programa_que_nunca_existiu"; T=$(jqp "$R" "d['summary']['total']")
-    { [ "$HTTP" = "200" ] && [ "$T" = "0" ]; } \
-        && ok "16. GET programa inexistente → 200 + lista vazia" \
-        || nok "16. GET inexistente" "HTTP=$HTTP total=$T"
+    GET "/caption/$PROGRAM_ID?scene_id=$UNICA_SID"
+    T=$(J "$R" "d['summary']['total']")
+    [ "$T" = "1" ] && ok "16. GET com filtro de 1 cena" || nok "16. filtro 1" "total=$T"
 fi
 
-# =============================================================================
-titulo "PARTE 5 — ISOLAMENTO"
-
 if ! pula 17; then
-    if [ -z "$CENA_P2_ID" ]; then skip "17. ★ isolamento entre programas" "PROG2/CENA_P2 não configurados"
+    if [ -z "$LOTE_A1_SID" ]; then skip "17. GET com 2 filtros" "sem segunda cena"
     else
-        post "$(item "$CENA_P2_ID" "$CENA_P2_VID" "$CENA_P2_PATH" "" "$PROG2")"
-        S=$(jqp "$R" "d['items'][0]['status']")
-        if [ "$HTTP" = "200" ] && [ "$S" = "success" ]; then
-            C2=$(jqp "$R" "d['items'][0]['scene_caption_en']")
-            get "/caption/$PROG?scene_id=$CENA_P2_ID"; R1="$R"; C1=$(jqp "$R1" "d['items'][0]['scene_caption_en']")
-            ok "17. ★ mesmo scene_id em program_id diferente"
-            det "$PROG/$CENA_P2_ID  : ${C1:-—}"
-            det "$PROG2/$CENA_P2_ID : $C2"
-            if [ "$CENA_P2_REPETIDO" = "1" ] && [ -n "$C1" ]; then
-                if [ "$C1" = "$C2" ]; then
-                    printf "       ${AMAR}⚠️  legendas IGUAIS — se os vídeos são diferentes, o cache vazou${FIM}\n"
-                else
-                    det "★ legendas DIFERENTES — caches isolados por program_id"
-                fi
-            fi
-        else nok "17. isolamento" "HTTP=$HTTP status=$S"; fi
+        GET "/caption/$PROGRAM_ID?scene_id=$UNICA_SID&scene_id=$LOTE_A1_SID"
+        T=$(J "$R" "d['summary']['total']")
+        [ "$T" = "2" ] && ok "17. GET com filtro de 2 cenas" || nok "17. filtro 2" "total=$T"
     fi
 fi
 
 if ! pula 18; then
-    get "/diagnostics/caption?video=$(basename "${CENA_A1_PATH:-x.mp4}")"
-    if [ "$HTTP" = "200" ] || [ "$HTTP" = "404" ]; then
-        ok "18. /diagnostics/caption respondeu — HTTP $HTTP"
-        [ "$HTTP" = "404" ] && det "404 é esperado se o vídeo não está no video_root configurado"
-        det "confira: annos/diagnostics/ criado, e annos/$PROG/ intacto"
-    else nok "18. /diagnostics/caption" "HTTP=$HTTP"; fi
+    GET "/caption/programa_que_nunca_existiu"
+    T=$(J "$R" "d['summary']['total']")
+    { [ "$HTTP" = "200" ] && [ "$T" = "0" ]; } \
+        && ok "18. GET de programa inexistente → 200 + vazio" \
+        || nok "18. GET inexistente" "HTTP=$HTTP total=$T"
 fi
 
 # =============================================================================
-titulo "FECHAMENTO — os modelos ficaram residentes?"
-get /health; GPU_FIM=$(jqp "$R" "d['models']['gpu'].get('allocated_mb','—')")
-echo "  allocated_mb no início : $GPU_INI"
-echo "  allocated_mb no fim    : $GPU_FIM"
-if [ "$GPU_INI" = "$GPU_FIM" ]; then
-    printf "  ${VERDE}✓ IGUAL — nenhuma requisição recarregou modelo${FIM}\n"
+t "BLOCO 5 — ISOLAMENTO ENTRE PROGRAMAS"
+
+if ! pula 19; then
+    if [ -z "$ISO_SID" ]; then skip "19. ★ isolamento" "sem PROGRAM_ID_2 no teste_config.sh"
+    else
+        POST /caption "$(item "$ISO_SID" "$ISO_VID" "$ISO_PATH" "$PROGRAM_ID_2")"
+        S=$(J "$R" "d['items'][0]['status']")
+        if [ "$HTTP" = "200" ] && [ "$S" = "success" ]; then
+            C2=$(J "$R" "d['items'][0]['scene_caption_en']")
+            ok "19. cena no segundo programa ($PROGRAM_ID_2)"
+            det "legenda: $C2"
+            if [ "$ISO_MESMO_SID" = "1" ]; then
+                GET "/caption/$PROGRAM_ID?scene_id=$ISO_SID"
+                C1=$(J "$R" "d['items'][0]['scene_caption_en']")
+                det "$PROGRAM_ID/$ISO_SID  : ${C1:-—}"
+                det "$PROGRAM_ID_2/$ISO_SID: $C2"
+                if [ -n "$C1" ] && [ "$C1" = "$C2" ]; then
+                    printf "       ${cA}⚠️  legendas IGUAIS — se os vídeos diferem, o cache VAZOU${cF}\n"
+                elif [ -n "$C1" ]; then
+                    det "★ legendas DIFERENTES — caches isolados por program_id"
+                fi
+            fi
+        else nok "19. isolamento" "HTTP=$HTTP status=$S"; fi
+    fi
+fi
+
+if ! pula 20; then
+    if [ -z "$PROGRAM_ID_2" ]; then skip "20. GET do segundo programa" "sem PROGRAM_ID_2"
+    else
+        GET "/caption/$PROGRAM_ID_2"
+        T=$(J "$R" "d['summary']['total']")
+        [ "$HTTP" = "200" ] && [ -n "$T" ] && [ "$T" -ge 1 ] \
+            && { ok "20. GET /caption/$PROGRAM_ID_2 — persistido separado"; det "cenas: $T"; } \
+            || nok "20. GET programa 2" "HTTP=$HTTP total=$T"
+    fi
+fi
+
+# =============================================================================
+t "FECHAMENTO — os modelos ficaram residentes?"
+GET /health; GPU1=$(J "$R" "d['models']['gpu'].get('allocated_mb','—')")
+echo "  allocated_mb no início : $GPU0"
+echo "  allocated_mb no fim    : $GPU1"
+if [ "$GPU0" = "$GPU1" ]; then
+    printf "  ${cV}✓ IGUAL — nenhuma requisição recarregou modelo${cF}\n"
 else
-    printf "  ${AMAR}⚠️  mudou — investigue se algo está recarregando modelo${FIM}\n"
+    printf "  ${cA}⚠️  mudou — investigue se algo está recarregando${cF}\n"
 fi
 
-# =============================================================================
-titulo "O QUE FICOU NO DISCO"
-cat <<FIM_TXT
-  Na raiz do RefCap:
-
-    ls annos/                          → $PROG, ${PROG2:-...}, diagnostics
-    ls meta/captions/                  → ${PROG}_blip.jsonl, ...
-    ls results/construct/$PROG/
-    ls results/response/$PROG/scenes/
-
-  ★ AS QUATRO VERIFICAÇÕES QUE VALEM O OLHO:
-
-    1. A fusão do proposals.json funcionou (tem TODAS as cenas):
-       python3 -c "import json;print(sorted(json.load(open('results/construct/$PROG/proposals.json'))))"
-
-    2. O histórico guarda todas as versões (o force gerou uma nova):
-       wc -l results/response/$PROG/responses.jsonl
-       ls results/response/$PROG/scenes/ | wc -l
-       → o .jsonl deve ter MAIS linhas que scenes/ tem arquivos
-
-    3. Uma cena guarda tudo:
-       python3 -m json.tool results/response/$PROG/scenes/$CENA_A1_ID.json
-       → scene_caption_en, keywords_en, timestamp, diagnostics.{ranking,n_raw,warning}
-
-    4. Os caches são separados por programa:
-       ls meta/captions/
-       → ${PROG}_blip.jsonl e ${PROG2}_blip.jsonl, arquivos distintos
-FIM_TXT
-
-titulo "RESULTADO"
-printf "  ${VERDE}%d passou${FIM}   ${VERM}%d falhou${FIM}   ${AMAR}%d pulado${FIM}\n" "$PASSOU" "$FALHOU" "$PULADO"
+t "RESULTADO"
+printf "  ${cV}%d passou${cF}   ${cR}%d falhou${cF}   ${cA}%d pulado${cF}\n" "$OK" "$ERRO" "$PULO"
 echo
-if [ "$FALHOU" -eq 0 ]; then
+if [ "$ERRO" -eq 0 ]; then
     echo "  ✓ Todos os casos executados passaram."
-    [ "$PULADO" -gt 0 ] && echo "    (os pulados precisam de cenas que o seu conjunto não tem —"
-    [ "$PULADO" -gt 0 ] && echo "     edite o teste_config.sh para apontá-las"
+    [ "$PULO" -gt 0 ] && echo "    Os pulados precisam de cenas que o conjunto não tem —"
+    [ "$PULO" -gt 0 ] && echo "    ajuste o teste_config.sh (VIDEO_IDS, PROGRAM_ID_2) para cobri-los."
 else
-    echo "  ✗ Há falhas acima — investigue antes de seguir."
+    echo "  ✗ Há falhas acima."
 fi
-exit $([ "$FALHOU" -eq 0 ] && echo 0 || echo 1)
+exit $([ "$ERRO" -eq 0 ] && echo 0 || echo 1)

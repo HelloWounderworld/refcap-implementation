@@ -79,6 +79,61 @@ curl -X POST $API/caption -H 'Content-Type: application/json' -d '{
 }'
 ```
 
+```bash
+{
+  "scene_id": "cena_01",
+  "video_id": "vidA",
+  "program_id": "prog_teste",
+  "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4"
+}
+```
+
+```bash
+{
+  "scene_id": "cena_01",
+  "video_id": "vidA",
+  "program_id": "prog_teste",
+  "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+  "items": [
+    {
+      "scene_id": "cena_01",
+      "video_id": "vidA",
+      "program_id": "prog_teste",
+      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+    }
+  ],
+  "callback_url": "string",
+  "assincrono": false,
+  "proposal_generator": "whole",
+  "force": false
+}
+```
+
+```bash
+{
+  "items": [
+    {
+      "scene_id": "cena_01",
+      "video_id": "vidA",
+      "program_id": "prog_teste",
+      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+    },
+    {
+      "scene_id": "cena_01",
+      "video_id": "vidA",
+      "program_id": "prog_teste",
+      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+    },
+    {
+      "scene_id": "cena_01",
+      "video_id": "vidA",
+      "program_id": "prog_teste",
+      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+    }
+  ]
+}
+```
+
 **A resposta (HTTP 200) traz o resultado completo** — a chamada aguarda o processamento:
 
 ```json
