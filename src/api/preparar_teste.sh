@@ -35,6 +35,7 @@ EXT="${EXT:-.mp4}"
 BASE_HOST="${BASE_HOST:-$BASE}"
 BASE_API="${BASE_API:-$BASE_HOST}"
 CONTAINER="${CONTAINER:-}"
+COMPOSE_FILE="${COMPOSE_FILE:-}"
 
 # traduz_para_api <caminho-no-host>
 # Troca o prefixo do host pelo do container. Sem tradução configurada,
@@ -154,15 +155,39 @@ DIR_PROG="$BASE_HOST/$PROGRAM_ID"
 # Como não dá para adivinhar qual você informou, testamos os dois e usamos o
 # que funcionar. Define $DEXEC com o comando certo.
 descobrir_exec() {
+    # 1) docker exec com o NOME DO CONTAINER
+    #    ★ Esta é a forma que funciona de QUALQUER diretório: ela não lê o
+    #      docker-compose.yml, só fala com o daemon do Docker.
     if docker exec "$CONTAINER" true 2>/dev/null; then
         DEXEC="docker exec $CONTAINER"
         det "usando: docker exec $CONTAINER   (nome do container)"
         return 0
     fi
+
+    # 2) docker compose exec com o arquivo informado
+    if [ -n "$COMPOSE_FILE" ] && [ -f "$COMPOSE_FILE" ]; then
+        if docker compose -f "$COMPOSE_FILE" exec -T "$CONTAINER" true 2>/dev/null; then
+            DEXEC="docker compose -f $COMPOSE_FILE exec -T $CONTAINER"
+            det "usando: docker compose -f $COMPOSE_FILE exec -T $CONTAINER"
+            return 0
+        fi
+    fi
+
+    # 3) docker compose exec com o arquivo no diretório atual
     if docker compose exec -T "$CONTAINER" true 2>/dev/null; then
         DEXEC="docker compose exec -T $CONTAINER"
-        det "usando: docker compose exec -T $CONTAINER   (nome do serviço)"
+        det "usando: docker compose exec -T $CONTAINER   (compose no diretório atual)"
         return 0
+    fi
+
+    # 4) o CONTAINER é um nome de SERVIÇO? tentamos resolver para o container
+    if [ -n "$COMPOSE_FILE" ] && [ -f "$COMPOSE_FILE" ]; then
+        RESOLVIDO=$(docker compose -f "$COMPOSE_FILE" ps -q "$CONTAINER" 2>/dev/null | head -1)
+        if [ -n "$RESOLVIDO" ] && docker exec "$RESOLVIDO" true 2>/dev/null; then
+            DEXEC="docker exec $RESOLVIDO"
+            det "serviço '$CONTAINER' resolvido para o container ${RESOLVIDO:0:12}"
+            return 0
+        fi
     fi
     return 1
 }
@@ -177,17 +202,27 @@ if [ -n "$CONTAINER" ]; then
     if ! descobrir_exec; then
         printf "\n${cR}✗ não consegui executar em '%s'${cF}\n" "$CONTAINER"
         echo
-        echo "  Tentei das duas formas:"
-        echo "      docker exec $CONTAINER ...            (nome do CONTAINER)"
-        echo "      docker compose exec -T $CONTAINER ... (nome do SERVIÇO)"
+        echo "  Tentei quatro formas, todas falharam:"
+        echo "      1. docker exec $CONTAINER"
+        echo "      2. docker compose -f \"$COMPOSE_FILE\" exec -T $CONTAINER"
+        echo "      3. docker compose exec -T $CONTAINER   (compose no dir atual)"
+        echo "      4. resolver '$CONTAINER' como serviço e usar o id"
         echo
-        echo "  Descubra o nome certo:"
-        echo "      docker compose ps"
-        echo "          NAME                  SERVICE       STATUS"
-        echo "          projeto-api-1         caption-api   running"
-        echo "               ↑ container           ↑ serviço"
+        printf "  ${cA}★ A SAÍDA MAIS SIMPLES${cF}\n"
+        echo '    Use o NOME DO CONTAINER — o docker exec funciona de'
+        echo "    QUALQUER diretório, sem precisar do docker-compose.yml:"
         echo
-        echo "  Qualquer um dos dois serve — o script detecta qual é."
+        echo "        docker ps --format '{{.Names}}'"
+        echo
+        echo "    Copie o nome que aparecer e ponha em CONTAINER no config."
+        echo
+        echo "  Se preferir usar o nome do SERVIÇO, informe onde está o"
+        echo "  compose file:"
+        echo "        COMPOSE_FILE=\"../../.docker/docker-compose.yml\""
+        echo
+        printf "  ${cA}★ OU IGNORE TUDO ISSO${cF}\n"
+        echo "    Preencha CENAS_A no teste_config.sh e use o modo"
+        echo "    DECLARATIVO — ele não executa nada no container."
         exit 1
     fi
     DIR_PROG_API="$BASE_API/$PROGRAM_ID"

@@ -25,6 +25,7 @@ services:
       - ${UI_PORT_PROD}:8000
     working_dir: /${USERNAME}
     volumes:
+      - ./../movies/Share:/${USERNAME}/src/movies/Share:ro,z
       - ./../:/${USERNAME}
       - ./../log/refcap-api:/var/log
     tty: true

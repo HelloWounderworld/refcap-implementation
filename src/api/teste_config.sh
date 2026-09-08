@@ -68,7 +68,23 @@ EXT=".mp4"
 # CONTAINER  se preenchido, lista com `docker exec` em vez de ler o host
 
 BASE_HOST=""
+
+# CONTAINER aceita DUAS coisas — o script detecta qual você informou:
+#
+#   o NOME DO CONTAINER  (ex.: "projeto-caption-api-1")
+#       ★ preferível: `docker exec` funciona de QUALQUER diretório,
+#         sem precisar do docker-compose.yml por perto.
+#         Descubra com:  docker ps --format '{{.Names}}'
+#
+#   o NOME DO SERVIÇO    (ex.: "caption-api")
+#       exige o docker-compose.yml — informe onde ele está em COMPOSE_FILE.
 CONTAINER=""
+
+# Só necessário se CONTAINER for o nome do SERVIÇO e o docker-compose.yml
+# não estiver no diretório onde você roda o script.
+#   ex.: "../../.docker/docker-compose.yml"
+COMPOSE_FILE=""
+
 VIDEO_IDS=""          # vazio = todos os subdiretórios
 
 
