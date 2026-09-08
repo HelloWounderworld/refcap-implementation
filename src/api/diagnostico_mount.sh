@@ -46,7 +46,52 @@ printf "  %-14s %s\n" "API"         "$API"
 printf "  %-14s %s (uid=%s)\n" "seu usuário" "$(id -un)" "$(id -u)"
 
 # =============================================================================
-t "1. O CAMINHO, VISTO DAQUI (o seu shell)"
+t "0. ★ A API RODA EM CONTAINER?"
+
+EM_DOCKER=0
+if command -v docker >/dev/null 2>&1; then
+    CTR=$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null | grep -iE 'caption|refcap|api' | head -1)
+    if [ -n "$CTR" ]; then
+        EM_DOCKER=1
+        NOME=$(echo "$CTR" | cut -f1)
+        ok "container encontrado: $NOME"
+        det "portas: $(echo "$CTR" | cut -f2)"
+        echo
+        printf "  ${cA}★ ISTO MUDA TUDO${cF}\n"
+        echo "    O container tem o PRÓPRIO filesystem. Uma montagem SMB feita no"
+        echo "    host NÃO existe dentro dele, a menos que seja bind-montada."
+        echo
+        echo "    E os valores seguem regras OPOSTAS:"
+        echo "      a URL da API      -> porta do HOST"
+        echo "      o scene_video_path -> caminho do CONTAINER"
+        echo
+        echo "  Os bind-mounts deste container:"
+        docker inspect "$NOME" --format '{{range .Mounts}}     {{.Source}} -> {{.Destination}} ({{if .RW}}rw{{else}}ro{{end}}){{"\n"}}{{end}}' 2>/dev/null
+        echo
+        echo "  ★ O container enxerga a BASE?"
+        if docker exec "$NOME" test -d "$BASE" 2>/dev/null; then
+            ok "SIM — $BASE existe DENTRO do container"
+            det "$(docker exec "$NOME" ls "$BASE" 2>/dev/null | head -5 | tr '\n' ' ')"
+        else
+            mal "NÃO — $BASE não existe dentro do container"
+            echo
+            echo "     ★ ESTA É A CAUSA. Acrescente ao docker-compose.yml:"
+            echo
+            echo "         volumes:"
+            echo "           - $BASE:$BASE:ro"
+            echo
+            echo "     Usar o MESMO caminho dos dois lados evita ter de traduzir"
+            echo "     entre host e container. Depois:  docker compose up -d"
+        fi
+    else
+        det "nenhum container com nome caption/refcap/api rodando"
+        det "(se a API roda direto no host, ignore este bloco)"
+    fi
+else
+    det "docker não encontrado — assumindo que a API roda no host"
+fi
+
+t "1. O CAMINHO, VISTO DAQUI (o seu shell$([ "$EM_DOCKER" = "1" ] && echo ", no HOST"))"
 
 if [ -d "$BASE" ]; then
     ok "o diretório EXISTE para o usuário $(id -un)"
@@ -228,4 +273,7 @@ cat <<'FIM'
     4. ★ o SERVIÇO enxerga o mesmo arquivo?   (bloco 4)
 
   Se 1-3 passam e o 4 falha, é permissão ou namespace — não caminho.
+
+  ★ EM DOCKER, a causa quase sempre é o bloco 0: a montagem do host não
+    foi bind-montada para dentro do container. Veja DOCKER.md.
 FIM
