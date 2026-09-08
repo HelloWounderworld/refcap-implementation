@@ -80,11 +80,20 @@ curl -X POST $API/caption -H 'Content-Type: application/json' -d '{
 ```
 
 ```bash
+curl -X POST 8000/caption -H 'Content-Type: application/json' -d '{
+  "scene_id": "cena_01",
+  "video_id": "vidA",
+  "program_id": "prog_teste",
+  "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_01.mp4"
+}'
+```
+
+```bash
 {
   "scene_id": "cena_01",
   "video_id": "vidA",
   "program_id": "prog_teste",
-  "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4"
+  "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_01.mp4"
 }
 ```
 
@@ -116,19 +125,19 @@ curl -X POST $API/caption -H 'Content-Type: application/json' -d '{
       "scene_id": "cena_01",
       "video_id": "vidA",
       "program_id": "prog_teste",
-      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+      "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_01.mp4"
     },
     {
-      "scene_id": "cena_01",
+      "scene_id": "cena_02",
       "video_id": "vidA",
       "program_id": "prog_teste",
-      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+      "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_02.mp4"
     },
     {
-      "scene_id": "cena_01",
+      "scene_id": "cena_03",
       "video_id": "vidA",
       "program_id": "prog_teste",
-      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
+      "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_03.mp4"
     }
   ]
 }

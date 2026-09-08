@@ -26,36 +26,169 @@ t() { echo; echo "════════════════════�
 
 API="${API_SCHEME}://${API_HOST}:${API_PORT}"
 
-t "CONFIGURAÇÃO LIDA"
+# ★ DOIS CAMINHOS
+#   BASE_HOST  onde ESTE script procura os .mp4
+#   BASE_API   o prefixo que vai no scene_video_path da requisição
+#
+# Aceita o `BASE` antigo, para configs de antes do Docker.
+BASE_HOST="${BASE_HOST:-$BASE}"
+BASE_API="${BASE_API:-$BASE_HOST}"
+CONTAINER="${CONTAINER:-}"
+
+# traduz_para_api <caminho-no-host>
+# Troca o prefixo do host pelo do container. Sem tradução configurada,
+# devolve o caminho como está.
+traduz_para_api() {
+    case "$1" in
+        "$BASE_HOST"*) echo "$BASE_API${1#$BASE_HOST}" ;;
+        *)             echo "$1" ;;
+    esac
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MODO A — DECLARATIVO
+#
+# ★ Se CENAS_A estiver preenchido, montamos os caminhos direto do que você
+#   declarou. NENHUM acesso ao filesystem — nem do host, nem do container.
+#
+#   É o modo que sempre funciona: o mesmo que você faria montando o curl à
+#   mão. A descoberta (modo B) só existe para quando você NÃO sabe as cenas,
+#   e ela depende de conseguir ler o diretório — o que em Docker com SMB
+#   costuma falhar.
+# ═══════════════════════════════════════════════════════════════════════════
+if [ -n "$CENAS_A" ]; then
+    t "MODO DECLARATIVO — usando as cenas que você informou"
+    printf "  %-14s %s\n" "API"        "$API"
+    printf "  %-14s %s\n" "BASE_API"   "$BASE_API"
+    printf "  %-14s %s\n" "PROGRAM_ID" "$PROGRAM_ID"
+    echo
+    EXT="${EXT:-.mp4}"
+
+    cam() { echo "$BASE_API/$PROGRAM_ID/$1/$2$EXT"; }
+
+    # --- diretório A ---
+    set -- $CENAS_A
+    A1="$1"; A2="${2:-}"; A3="${3:-}"
+    printf "  %-10s %-12s %s\n" "$VIDEO_A" "$A1" "$(cam "$VIDEO_A" "$A1")"
+    [ -n "$A2" ] && printf "  %-10s %-12s %s\n" "" "$A2" "$(cam "$VIDEO_A" "$A2")"
+    [ -n "$A3" ] && printf "  %-10s %-12s %s\n" "" "$A3" "$(cam "$VIDEO_A" "$A3")"
+
+    # --- diretório B (opcional) ---
+    B1=""
+    if [ -n "$VIDEO_B" ] && [ -n "$CENAS_B" ]; then
+        set -- $CENAS_B; B1="$1"
+        echo
+        printf "  %-10s %-12s %s\n" "$VIDEO_B" "$B1" "$(cam "$VIDEO_B" "$B1")"
+    fi
+
+    # --- monta os papéis ---
+    UNICA_SID="$A1";  UNICA_VID="$VIDEO_A";  UNICA_PATH="$(cam "$VIDEO_A" "$A1")"
+    LOTE_A1_SID="${A2:-$A1}"; LOTE_A1_VID="$VIDEO_A"; LOTE_A1_PATH="$(cam "$VIDEO_A" "${A2:-$A1}")"
+    LOTE_A2_SID="${A3:-${A2:-$A1}}"; LOTE_A2_VID="$VIDEO_A"; LOTE_A2_PATH="$(cam "$VIDEO_A" "${A3:-${A2:-$A1}}")"
+    if [ -n "$B1" ]; then
+        LOTE_B1_SID="$B1"; LOTE_B1_VID="$VIDEO_B"; LOTE_B1_PATH="$(cam "$VIDEO_B" "$B1")"
+    else
+        LOTE_B1_SID=""; LOTE_B1_VID=""; LOTE_B1_PATH=""
+    fi
+    if [ -n "$CENA_CURTA" ]; then
+        CURTA_SID="$CENA_CURTA"; CURTA_VID="${CENA_CURTA_VIDEO:-$VIDEO_A}"
+        CURTA_PATH="$(cam "${CENA_CURTA_VIDEO:-$VIDEO_A}" "$CENA_CURTA")"; CURTA_DUR="<1"
+    else
+        CURTA_SID=""; CURTA_VID=""; CURTA_PATH=""; CURTA_DUR=""
+    fi
+
+    # todas, para o lote completo
+    TODAS=""
+    for c in $CENAS_A; do TODAS="$TODAS $VIDEO_A:$c:$(cam "$VIDEO_A" "$c")"; done
+    for c in $CENAS_B; do TODAS="$TODAS $VIDEO_B:$c:$(cam "$VIDEO_B" "$c")"; done
+    TODAS="${TODAS# }"
+    N_CENAS=$(echo "$TODAS" | wc -w)
+    N_DIRS=$([ -n "$B1" ] && echo 2 || echo 1)
+
+    # segundo programa, para o isolamento
+    ISO_SID=""; ISO_VID=""; ISO_PATH=""; MESMO=0
+    if [ -n "$PROGRAM_ID_2" ]; then
+        ISO_VID="${VIDEO_ID_2:-$VIDEO_A}"
+        ISO_SID="${CENA_ISO:-$A1}"
+        ISO_PATH="$BASE_API/$PROGRAM_ID_2/$ISO_VID/$ISO_SID$EXT"
+        [ "$ISO_SID" = "$A1" ] && MESMO=1
+    fi
+
+    t "PAPÉIS"
+    pp() { if [ -n "$2" ]; then printf "  ${cV}✓${cF} %-11s %-16s %s\n" "$1" "$2" "$3"
+           else printf "  ${cA}○${cF} %-11s %-16s %s\n" "$1" "(ausente)" "$3"; fi; }
+    pp "UNICA"   "$UNICA_SID"   "POST /caption + cache"
+    pp "LOTE_A1" "$LOTE_A1_SID" "lote — mesmo diretório"
+    pp "LOTE_A2" "$LOTE_A2_SID" "lote — mesmo diretório"
+    pp "LOTE_B1" "$LOTE_B1_SID" "★ outro diretório — agrupamento"
+    pp "CURTA"   "$CURTA_SID"   "★ < 1s — patch do viddataset"
+    pp "ISOLAM." "$ISO_SID"     "★ outro program_id"
+
+    DIR_VAZIO="/tmp/refcap_teste_dir_vazio"; mkdir -p "$DIR_VAZIO" 2>/dev/null
+    DIR_COM_VIDEO="$BASE_API/$PROGRAM_ID/$VIDEO_A"
+    DECLARADO=1
+fi
+
+if [ -z "$DECLARADO" ]; then
+
+t "CONFIGURAÇÃO LIDA"t "CONFIGURAÇÃO LIDA"
 printf "  %-14s %s\n" "API"        "$API"
-printf "  %-14s %s\n" "BASE"       "$BASE"
+printf "  %-14s %s\n" "BASE_HOST"  "$BASE_HOST"
+printf "  %-14s %s%s\n" "BASE_API"   "$BASE_API" \
+    "$([ "$BASE_API" != "$BASE_HOST" ] && echo '   ← o caminho que vai na requisição')"
+[ -n "$CONTAINER" ] && printf "  %-14s %s\n" "CONTAINER" "$CONTAINER   ← listagem via docker exec"
 printf "  %-14s %s\n" "PROGRAM_ID" "$PROGRAM_ID"
 printf "  %-14s %s\n" "VIDEO_IDS"  "${VIDEO_IDS:-(descobrir automaticamente)}"
 printf "  %-14s %s\n" "PROGRAM_ID_2" "${PROGRAM_ID_2:-(sem teste de isolamento)}"
 printf "  %-14s %s\n" "MAX_CENAS"  "$MAX_CENAS"
 
 # --------------------------------------------------------------------------- #
-DIR_PROG="$BASE/$PROGRAM_ID"
+DIR_PROG="$BASE_HOST/$PROGRAM_ID"
 
-if [ ! -d "$DIR_PROG" ]; then
+# ★ MODO CONTAINER: quando o HOST não enxerga os arquivos (a montagem só
+#   existe dentro do container), listamos com `docker exec`. Aí o BASE_HOST
+#   é irrelevante — tudo é resolvido no BASE_API.
+if [ -n "$CONTAINER" ]; then
+    if ! command -v docker >/dev/null; then
+        printf "\n${cR}✗ CONTAINER definido mas o docker não está no PATH${cF}\n"; exit 1
+    fi
+    if ! docker exec "$CONTAINER" true 2>/dev/null; then
+        printf "\n${cR}✗ não consegui executar no container '%s'${cF}\n" "$CONTAINER"
+        echo "  Está rodando?   docker ps"
+        exit 1
+    fi
+    DIR_PROG_API="$BASE_API/$PROGRAM_ID"
+    if ! docker exec "$CONTAINER" test -d "$DIR_PROG_API" 2>/dev/null; then
+        printf "\n${cR}✗ %s não existe DENTRO do container${cF}\n" "$DIR_PROG_API"
+        echo "  O que há em $BASE_API:"
+        docker exec "$CONTAINER" ls "$BASE_API" 2>/dev/null | head -10 | sed 's/^/     /'
+        echo
+        echo "  Confira BASE_API e PROGRAM_ID no teste_config.sh."
+        exit 1
+    fi
+elif [ ! -d "$DIR_PROG" ]; then
     if [ "$1" = "--gerar" ] && command -v ffmpeg >/dev/null; then
         t "GERANDO CENAS SINTÉTICAS"
         mkdir -p "$DIR_PROG/vidA" "$DIR_PROG/vidB"
         g() { ffmpeg -f lavfi -i "testsrc=duration=$2:size=320x240:rate=25" \
-                     -y "$1" -loglevel error 2>/dev/null; echo "  ${1#$BASE/}  ${2}s"; }
+                     -y "$1" -loglevel error 2>/dev/null; echo "  ${1#$BASE_HOST/}  ${2}s"; }
         g "$DIR_PROG/vidA/cena_01.mp4" 3
         g "$DIR_PROG/vidA/cena_02.mp4" 2
         g "$DIR_PROG/vidA/cena_03.mp4" 0.5
         g "$DIR_PROG/vidB/cena_04.mp4" 3
         g "$DIR_PROG/vidB/cena_05.mp4" 2
         if [ -n "$PROGRAM_ID_2" ]; then
-            mkdir -p "$BASE/$PROGRAM_ID_2/${VIDEO_ID_2:-vidX}"
-            g "$BASE/$PROGRAM_ID_2/${VIDEO_ID_2:-vidX}/cena_01.mp4" 2
+            mkdir -p "$BASE_HOST/$PROGRAM_ID_2/${VIDEO_ID_2:-vidX}"
+            g "$BASE_HOST/$PROGRAM_ID_2/${VIDEO_ID_2:-vidX}/cena_01.mp4" 2
         fi
     else
-        printf "\n${R}✗ diretório não encontrado: %s${F}\n" "$DIR_PROG"
-        echo "  Ajuste BASE e PROGRAM_ID no teste_config.sh,"
-        echo "  ou rode:  bash preparar_teste.sh --gerar"
+        printf "\n${cR}✗ diretório não encontrado no HOST: %s${cF}\n" "$DIR_PROG"
+        echo
+        echo "  Três saídas:"
+        echo "    1. ajuste BASE_HOST e PROGRAM_ID no teste_config.sh"
+        echo "    2. se os arquivos só existem DENTRO do container, informe"
+        echo "       CONTAINER=\"nome-do-container\" e BASE_API no config"
+        echo "    3. gere cenas de teste:  bash preparar_teste.sh --gerar"
         exit 1
     fi
 fi
@@ -63,38 +196,68 @@ fi
 # --------------------------------------------------------------------------- #
 t "CENAS ENCONTRADAS"
 
-MAPA=$(python3 - "$DIR_PROG" "$VIDEO_IDS" "$MAX_CENAS" <<'PYEOF'
-import pathlib, subprocess, sys
-raiz = pathlib.Path(sys.argv[1])
-filtro = [v for v in sys.argv[2].split() if v]
-limite = int(sys.argv[3] or 0)
-
+# A listagem: no HOST, ou dentro do container.
+# ★ O 3o campo do MAPA e' SEMPRE o caminho que vai na REQUISICAO (o do
+#   container, se houver traducao) — nunca o caminho do host.
+if [ -n "$CONTAINER" ]; then
+    BRUTO=$(docker exec "$CONTAINER" python3 -c "
+import pathlib, subprocess
+raiz = pathlib.Path('$BASE_API/$PROGRAM_ID')
 def dur(p):
-    """Duração do STREAM — é o que o RefCap lê, e difere do player."""
     try:
-        r = subprocess.run(["ffprobe","-v","error","-select_streams","v:0",
-                            "-show_entries","stream=duration","-of","csv=p=0",str(p)],
+        r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0',
+                            '-show_entries','stream=duration','-of','csv=p=0',str(p)],
                            capture_output=True, text=True, timeout=20)
         return float(r.stdout.strip())
     except Exception:
         return -1.0
+for d in sorted(x for x in raiz.iterdir() if x.is_dir()):
+    for f in sorted(d.glob('*.mp4')):
+        print('%s|%s|%s|%.3f' % (d.name, f.stem, f, dur(f)))
+" 2>/dev/null)
+else
+    BRUTO=$(python3 -c "
+import pathlib, subprocess
+raiz = pathlib.Path('$DIR_PROG')
+def dur(p):
+    try:
+        r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0',
+                            '-show_entries','stream=duration','-of','csv=p=0',str(p)],
+                           capture_output=True, text=True, timeout=20)
+        return float(r.stdout.strip())
+    except Exception:
+        return -1.0
+for d in sorted(x for x in raiz.iterdir() if x.is_dir()):
+    for f in sorted(d.glob('*.mp4')):
+        print('%s|%s|%s|%.3f' % (d.name, f.stem, f, dur(f)))
+")
+fi
 
-dirs = sorted(d for d in raiz.iterdir() if d.is_dir())
-if filtro:
-    dirs = [d for d in dirs if d.name in filtro]
+# filtra por VIDEO_IDS, aplica MAX_CENAS e TRADUZ os caminhos
+MAPA=$(printf '%s' "$BRUTO" | python3 -c "
+import sys
+filtro = [v for v in '''$VIDEO_IDS'''.split() if v]
+limite = int('''$MAX_CENAS''' or 0)
+b_host, b_api = '''$BASE_HOST''', '''$BASE_API'''
 
 linhas = []
-for d in dirs:
-    for f in sorted(d.glob("*.mp4")):
-        linhas.append((d.name, f.stem, str(f), dur(f)))
+for l in sys.stdin.read().strip().splitlines():
+    if not l.strip(): continue
+    v, s, c, d = l.split('|')
+    if filtro and v not in filtro: continue
+    # ★ TRADUCAO: o caminho da requisicao e' o do container
+    if b_api != b_host and c.startswith(b_host):
+        c = b_api + c[len(b_host):]
+    try: d = float(d)
+    except ValueError: d = -1.0
+    linhas.append((v, s, c, d))
 
 if limite > 0:
-    # ★ Distribui o limite ENTRE os diretórios, em vez de cortar no primeiro.
-    # Cortar direto deixaria o segundo diretório de fora — e sem ele não há
+    # ★ Distribui o limite ENTRE os diretorios, em vez de cortar no primeiro.
+    # Cortando direto, o segundo diretorio ficaria de fora — e sem ele nao ha
     # como testar o agrupamento.
     por_dir = {}
-    for v, s, c, du in linhas:
-        por_dir.setdefault(v, []).append((v, s, c, du))
+    for t in linhas: por_dir.setdefault(t[0], []).append(t)
     saida, i = [], 0
     while len(saida) < limite:
         avancou = False
@@ -105,10 +268,9 @@ if limite > 0:
         i += 1
     linhas = saida
 
-for v, s, c, du in linhas:
-    print(f"{v}|{s}|{c}|{du:.3f}")
-PYEOF
-)
+for v, s, c, d in linhas:
+    print('%s|%s|%s|%.3f' % (v, s, c, d))
+")
 
 [ -z "$MAPA" ] && { printf "${R}✗ nenhum .mp4 em %s${F}\n" "$DIR_PROG"; exit 1; }
 
@@ -185,8 +347,8 @@ printf "  %-13s %s cena(s) em %s diretório(s)\n" "total:" "$N_CENAS" "$N_DIRS"
 # Segundo programa, para o isolamento
 ISO_SID=""; ISO_VID=""; ISO_PATH=""
 if [ -n "$PROGRAM_ID_2" ]; then
-    D2="$BASE/$PROGRAM_ID_2/${VIDEO_ID_2}"
-    [ -z "$VIDEO_ID_2" ] && D2=$(find "$BASE/$PROGRAM_ID_2" -mindepth 1 -maxdepth 1 -type d | head -1)
+    D2="$BASE_HOST/$PROGRAM_ID_2/${VIDEO_ID_2}"
+    [ -z "$VIDEO_ID_2" ] && D2=$(find "$BASE_HOST/$PROGRAM_ID_2" -mindepth 1 -maxdepth 1 -type d | head -1)
     if [ -d "$D2" ]; then
         # de preferência uma cena com o MESMO scene_id da UNICA — é o caso que
         # provaria o vazamento de cache, se houvesse
@@ -208,6 +370,8 @@ fi
 
 # diretório vazio, em /tmp — nunca dentro das suas cenas
 DIR_VAZIO="/tmp/refcap_teste_dir_vazio"; mkdir -p "$DIR_VAZIO"
+
+fi   # fim do bloco de DESCOBERTA (modo B)
 
 # --------------------------------------------------------------------------- #
 cat > "$PAPEIS" <<CFG

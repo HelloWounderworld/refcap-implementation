@@ -16,32 +16,62 @@ API_SCHEME="http"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. ONDE ESTÃO AS CENAS
-#
-# A estrutura esperada é a do contrato:
-#     <BASE>/{program_id}/{video_id}/{scene_id}.mp4
-#
-# Exemplo: com BASE=/dados, PROGRAM_ID=novela_x e VIDEO_IDS="ep01 ep02",
-# ele procura os .mp4 em
-#     /dados/novela_x/ep01/*.mp4
-#     /dados/novela_x/ep02/*.mp4
+# 2. AS CENAS  —  ★ ESCOLHA UM DOS DOIS MODOS
 # ─────────────────────────────────────────────────────────────────────────────
-BASE="/tmp/teste_refcap"
+#
+#   MODO A — DECLARAR (recomendado, e o único que funciona sempre)
+#            Você diz quais são as cenas. Nada é lido do disco.
+#            É o equivalente ao que você faria montando o curl à mão.
+#
+#   MODO B — DESCOBRIR
+#            O script lista os .mp4. Exige que o HOST (ou o container, via
+#            docker exec) consiga ler o diretório.
+#
+# Se CENAS_A estiver preenchido, o MODO A vence e o resto é ignorado.
+# ─────────────────────────────────────────────────────────────────────────────
 
-# O program_id que vai nas requisições — e que vira o `collection` no RefCap
+# O prefixo que vai no `scene_video_path` — o caminho COMO A API O VÊ.
+# Em Docker, é o destino do bind-mount (o lado direito do `volumes:`).
+BASE_API="/dados/cenas"
+
+# O program_id — vira o `collection` no RefCap
 PROGRAM_ID="prog_teste"
 
-# Os video_id (diretórios) DENTRO do program_id.
+
+# ── MODO A: declare as cenas ───────────────────────────────────────────────
 #
-# ★ INFORME PELO MENOS DOIS para exercitar o AGRUPAMENTO: cenas em diretórios
-#   diferentes viram chamadas separadas de build(). Com um só, esse teste é
-#   pulado.
+# O caminho é montado assim:
+#     $BASE_API/$PROGRAM_ID/$VIDEO_A/<cena>.mp4
 #
-# Deixe VAZIO ("") para descobrir automaticamente todos os subdiretórios.
-VIDEO_IDS=""
+# ★ Preencha VIDEO_B com um SEGUNDO diretório para exercitar o AGRUPAMENTO
+#   (cenas em diretórios diferentes viram builds separados). Sem ele, esse
+#   teste é pulado.
+
+VIDEO_A="vidA"
+CENAS_A="cena_01 cena_02 cena_03"
+
+VIDEO_B=""
+CENAS_B=""
+
+# Se alguma cena tiver menos de 1s, informe aqui para testar o patch do
+# viddataset. Deixe vazio se não houver.
+CENA_CURTA=""
+CENA_CURTA_VIDEO=""
+
+# A extensão dos arquivos
+EXT=".mp4"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ── MODO B: descobrir (só se CENAS_A estiver vazio) ────────────────────────
+#
+# BASE_HOST  onde os SCRIPTS procuram os .mp4 no host
+# CONTAINER  se preenchido, lista com `docker exec` em vez de ler o host
+
+BASE_HOST=""
+CONTAINER=""
+VIDEO_IDS=""          # vazio = todos os subdiretórios
+
+
 # 3. UM SEGUNDO PROGRAMA — para o teste de ISOLAMENTO
 #
 # Serve para provar que o mesmo `scene_id` em programas diferentes NÃO
