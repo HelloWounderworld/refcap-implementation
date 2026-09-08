@@ -31,6 +31,7 @@ API="${API_SCHEME}://${API_HOST}:${API_PORT}"
 #   BASE_API   o prefixo que vai no scene_video_path da requisição
 #
 # Aceita o `BASE` antigo, para configs de antes do Docker.
+EXT="${EXT:-.mp4}"
 BASE_HOST="${BASE_HOST:-$BASE}"
 BASE_API="${BASE_API:-$BASE_HOST}"
 CONTAINER="${CONTAINER:-}"
@@ -131,7 +132,7 @@ fi
 
 if [ -z "$DECLARADO" ]; then
 
-t "CONFIGURAÇÃO LIDA"t "CONFIGURAÇÃO LIDA"
+t "CONFIGURAÇÃO LIDA"
 printf "  %-14s %s\n" "API"        "$API"
 printf "  %-14s %s\n" "BASE_HOST"  "$BASE_HOST"
 printf "  %-14s %s%s\n" "BASE_API"   "$BASE_API" \
@@ -145,6 +146,27 @@ printf "  %-14s %s\n" "MAX_CENAS"  "$MAX_CENAS"
 # --------------------------------------------------------------------------- #
 DIR_PROG="$BASE_HOST/$PROGRAM_ID"
 
+# ★ Descobre COMO executar dentro do container.
+#
+# `docker exec` quer o NOME DO CONTAINER (ex.: projeto-caption-api-1).
+# `docker compose exec` quer o NOME DO SERVIÇO (ex.: caption-api).
+#
+# Como não dá para adivinhar qual você informou, testamos os dois e usamos o
+# que funcionar. Define $DEXEC com o comando certo.
+descobrir_exec() {
+    if docker exec "$CONTAINER" true 2>/dev/null; then
+        DEXEC="docker exec $CONTAINER"
+        det "usando: docker exec $CONTAINER   (nome do container)"
+        return 0
+    fi
+    if docker compose exec -T "$CONTAINER" true 2>/dev/null; then
+        DEXEC="docker compose exec -T $CONTAINER"
+        det "usando: docker compose exec -T $CONTAINER   (nome do serviço)"
+        return 0
+    fi
+    return 1
+}
+
 # ★ MODO CONTAINER: quando o HOST não enxerga os arquivos (a montagem só
 #   existe dentro do container), listamos com `docker exec`. Aí o BASE_HOST
 #   é irrelevante — tudo é resolvido no BASE_API.
@@ -152,13 +174,24 @@ if [ -n "$CONTAINER" ]; then
     if ! command -v docker >/dev/null; then
         printf "\n${cR}✗ CONTAINER definido mas o docker não está no PATH${cF}\n"; exit 1
     fi
-    if ! docker exec "$CONTAINER" true 2>/dev/null; then
-        printf "\n${cR}✗ não consegui executar no container '%s'${cF}\n" "$CONTAINER"
-        echo "  Está rodando?   docker ps"
+    if ! descobrir_exec; then
+        printf "\n${cR}✗ não consegui executar em '%s'${cF}\n" "$CONTAINER"
+        echo
+        echo "  Tentei das duas formas:"
+        echo "      docker exec $CONTAINER ...            (nome do CONTAINER)"
+        echo "      docker compose exec -T $CONTAINER ... (nome do SERVIÇO)"
+        echo
+        echo "  Descubra o nome certo:"
+        echo "      docker compose ps"
+        echo "          NAME                  SERVICE       STATUS"
+        echo "          projeto-api-1         caption-api   running"
+        echo "               ↑ container           ↑ serviço"
+        echo
+        echo "  Qualquer um dos dois serve — o script detecta qual é."
         exit 1
     fi
     DIR_PROG_API="$BASE_API/$PROGRAM_ID"
-    if ! docker exec "$CONTAINER" test -d "$DIR_PROG_API" 2>/dev/null; then
+    if ! $DEXEC test -d "$DIR_PROG_API" 2>/dev/null; then
         printf "\n${cR}✗ %s não existe DENTRO do container${cF}\n" "$DIR_PROG_API"
         echo "  O que há em $BASE_API:"
         docker exec "$CONTAINER" ls "$BASE_API" 2>/dev/null | head -10 | sed 's/^/     /'
@@ -200,7 +233,11 @@ t "CENAS ENCONTRADAS"
 # ★ O 3o campo do MAPA e' SEMPRE o caminho que vai na REQUISICAO (o do
 #   container, se houver traducao) — nunca o caminho do host.
 if [ -n "$CONTAINER" ]; then
-    BRUTO=$(docker exec "$CONTAINER" python3 -c "
+    # ★ O stderr NÃO é descartado: se o comando falhar dentro do container,
+    # queremos ver o motivo. A versão anterior mandava tudo para /dev/null e
+    # o sintoma virava um enigmático "nenhum .mp4 encontrado".
+    ERRO_CTR=$(mktemp)
+    BRUTO=$($DEXEC python3 -c "
 import pathlib, subprocess
 raiz = pathlib.Path('$BASE_API/$PROGRAM_ID')
 def dur(p):
@@ -212,9 +249,32 @@ def dur(p):
     except Exception:
         return -1.0
 for d in sorted(x for x in raiz.iterdir() if x.is_dir()):
-    for f in sorted(d.glob('*.mp4')):
+    for f in sorted(d.glob('*$EXT')):
         print('%s|%s|%s|%.3f' % (d.name, f.stem, f, dur(f)))
-" 2>/dev/null)
+" 2>"$ERRO_CTR")
+    if [ -z "$BRUTO" ]; then
+        printf "\n${cR}✗ o container não listou nenhum %s em %s${cF}\n" "$EXT" "$BASE_API/$PROGRAM_ID"
+        if [ -s "$ERRO_CTR" ]; then
+            echo
+            echo "  O erro DENTRO do container:"
+            sed 's/^/     /' "$ERRO_CTR" | head -12
+            echo
+            grep -q "No module named\|python3: not found\|executable file not found" "$ERRO_CTR" && {
+                echo "  ★ parece que o python3 não está no PATH do container."
+                echo "    Use o MODO DECLARATIVO no teste_config.sh — ele não"
+                echo "    precisa executar nada lá dentro."
+            }
+        else
+            echo
+            echo "  O diretório existe, mas está vazio para o container. Confira:"
+            echo "      $DEXEC ls -la $BASE_API/$PROGRAM_ID"
+            echo
+            echo "  Se lá tiver subdiretórios com .mp4 e mesmo assim vier vazio,"
+            echo "  use o MODO DECLARATIVO — é mais simples e sempre funciona."
+        fi
+        rm -f "$ERRO_CTR"; exit 1
+    fi
+    rm -f "$ERRO_CTR"
 else
     BRUTO=$(python3 -c "
 import pathlib, subprocess
@@ -228,7 +288,7 @@ def dur(p):
     except Exception:
         return -1.0
 for d in sorted(x for x in raiz.iterdir() if x.is_dir()):
-    for f in sorted(d.glob('*.mp4')):
+    for f in sorted(d.glob('*$EXT')):
         print('%s|%s|%s|%.3f' % (d.name, f.stem, f, dur(f)))
 ")
 fi
