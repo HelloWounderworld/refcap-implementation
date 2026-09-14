@@ -218,8 +218,35 @@ class WholePropGenerator(BasePropGen):
         # mas a implementação real e o chamador usam 4
         # (QMPropGener.py:44 e constructpipe/base.py:86).
         proposals = {}
-        prop_sims = {}
         vid_2_cap = {x["vid_name"]: x for x in captions}
+
+        # ★ prop_sims CUMULATIVO
+        #
+        # A versão anterior fazia `prop_sims = {}` a cada execução e regravava
+        # o arquivo só com as cenas do `vid_list`. Como o `annos` da API
+        # contém apenas as cenas da requisição, processar UMA cena apagava as
+        # matrizes de todas as outras do programa — e recuperá-las exigiria
+        # reprocessar tudo.
+        #
+        # Agora carregamos o que já existe e acrescentamos. É o mesmo padrão
+        # que `compute_frame_features` e `compute_capframe_scores` já usam
+        # (constructpipe/base.py:123 e :97).
+        #
+        # ⚠️ O QUE ESTE ARQUIVO **NÃO** É: cada entrada é uma matriz [N, N]
+        # das legendas de UMA cena entre si. Não há similaridade ENTRE cenas
+        # aqui — acumular preserva as matrizes individuais, não cria relações
+        # novas. Quem consome isto é o `retrieve.py`.
+        caminho_sims = os.path.join(self.cfg.exp_dir, self.cfg.prop_sim_path)
+        prop_sims = {}
+        if os.path.exists(caminho_sims):
+            try:
+                prop_sims = torch.load(caminho_sims)
+                if not isinstance(prop_sims, dict):
+                    print(f"[WholePropGener] {caminho_sims} não é dict — recomeçando")
+                    prop_sims = {}
+            except Exception as exc:  # noqa: BLE001 — cache ilegível não derruba
+                print(f"[WholePropGener] prop_sims ilegível ({exc}) — recomeçando")
+                prop_sims = {}
 
         for vid in vid_list:
             video_name = vid.split(".")[0]
@@ -341,9 +368,12 @@ class WholePropGenerator(BasePropGen):
             }
 
         # Persistência, espelhando QMPropGener.py:63-64.
+        #
+        # Gravamos o dicionário INTEIRO — o que veio do disco mais o que esta
+        # execução acrescentou. A guarda `if prop_sims` continua: sem nenhuma
+        # matriz (nem antiga nem nova), não há o que salvar.
         if prop_sims:
-            torch.save(prop_sims,
-                       os.path.join(self.cfg.exp_dir, self.cfg.prop_sim_path))
+            torch.save(prop_sims, caminho_sims)
         basic_utils.save_json(
             proposals,
             os.path.join(self.cfg.exp_dir, self.cfg.proposals_file),
