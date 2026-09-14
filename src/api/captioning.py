@@ -50,6 +50,7 @@ import pathlib
 import re
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import persistencia
 from contratos import (MODEL_NAME_PADRAO, MODEL_VERSION_PADRAO, CaptionRequest,
@@ -286,6 +287,7 @@ def processar_pedido(
     montar_cfg,
     modelos,
     config_servico,
+    mode: str = "sync",
 ) -> dict:
     """Executa o pipeline completo e devolve a resposta no formato acordado.
 
@@ -299,6 +301,11 @@ def processar_pedido(
             ErrorCode.INVALID_REQUEST,
             "pedido vazio: informe `scene_id` + `scene_video_path`, ou `items`",
         )
+
+    # ★ Definido AQUI, antes de qualquer retorno: os summaries de falha
+    # precisam dele, e há um retorno antecipado quando TODAS as cenas falham
+    # na resolução do caminho.
+    program_id = next((i.program_id for i in itens if i.program_id), None)
 
     # --- PASSO 1: resolver os caminhos ------------------------------------ #
     resolvidos: list[dict] = []
@@ -317,10 +324,43 @@ def processar_pedido(
                 item.scene_id, exc.error_code, exc.message))
 
     if not resolvidos:
+        # ★ TODAS as cenas falharam na resolução do caminho. Voltamos cedo,
+        # mas o summary é gravado ASSIM MESMO — uma requisição inteiramente
+        # malsucedida é justamente a que mais interessa investigar depois.
+        #
+        # Aqui o `cfg` ainda não existe (ele nasce no laço de grupos), então
+        # montamos um só para descobrir o res_dir.
+        segundos = round(time.perf_counter() - t0, 2)
+        erros_por_codigo: dict[str, int] = {}
+        for f in falhas:
+            if f.error_code:
+                erros_por_codigo[f.error_code] = erros_por_codigo.get(f.error_code, 0) + 1
+        if program_id:
+            try:
+                agora = datetime.now(timezone.utc)
+                persistencia.gravar_summary(montar_cfg().res_dir, program_id, {
+                    "state": "concluded",
+                    "data": persistencia._data_legivel(agora),
+                    "timestamp": agora.isoformat(),
+                    "total": len(itens), "ok": 0, "errors": len(falhas),
+                    "seconds": segundos,
+                    "scenes": [i.scene_id for i in itens],
+                    "from_cache": 0, "processed": 0,
+                    "force": pedido.force,
+                    "proposal_generator": pedido.proposal_generator,
+                    "mode": mode,
+                    "groups": [],
+                    "error_codes": erros_por_codigo,
+                    "persisted": {},
+                })
+            except Exception:  # noqa: BLE001 — o summary é diagnóstico
+                log.exception("falha ao gravar o summary de %s", program_id)
         return {
-            "items": [f.model_dump() for f in falhas],
+            "items": [f.model_dump(exclude_none=True) for f in falhas],
             "summary": {"total": len(itens), "ok": 0, "errors": len(falhas)},
-            "seconds": round(time.perf_counter() - t0, 2),
+            "groups": [],
+            "persisted": {},
+            "seconds": segundos,
         }
 
     # --- PASSO 2: agrupar por diretório ------------------------------------ #
@@ -411,7 +451,35 @@ def processar_pedido(
 
         log.info("[job %s] build() em %s: %d cena(s), collection=%s",
                  job_id[:8], diretorio, len(nomes_base), collection)
-        tree_meta = build(cfg, modelos.como_dict()) or {}
+        try:
+            tree_meta = build(cfg, modelos.como_dict()) or {}
+        except Exception as exc:
+            # ★ FALHA TOTAL: registramos o summary com state "failed" ANTES de
+            # relançar. Sem isto, uma exceção no build faria a requisição
+            # inteira sumir do histórico — e é justamente a que mais interessa
+            # investigar depois.
+            if program_id and cfg_res_dir:
+                try:
+                    agora = datetime.now(timezone.utc)
+                    persistencia.gravar_summary(cfg_res_dir, program_id, {
+                        "state": "failed",
+                        "data": persistencia._data_legivel(agora),
+                        "timestamp": agora.isoformat(),
+                        "total": len(itens), "ok": 0, "errors": len(itens),
+                        "seconds": round(time.perf_counter() - t0, 2),
+                        "scenes": [i.scene_id for i in itens],
+                        "from_cache": 0, "processed": 0,
+                        "force": pedido.force,
+                        "proposal_generator": pedido.proposal_generator,
+                        "mode": mode,
+                        "groups": diagnostico_grupos,
+                        "error_codes": {ErrorCode.INTERNAL_ERROR: len(itens)},
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "failed_at": {"directory": diretorio, "collection": collection},
+                    })
+                except Exception:  # noqa: BLE001
+                    log.exception("falha ao gravar o summary de erro")
+            raise
 
         # ★ FUSÃO — logo após o build, DENTRO do laço.
         #
@@ -467,11 +535,11 @@ def processar_pedido(
             }
 
         diagnostico_grupos.append({
-            "diretorio": diretorio,
+            "directory": diretorio,
             "collection": collection,
-            "cenas": len(nomes_base),
-            "estavam_em_cache": len([n for n in nomes_base if n in ja_em_cache]),
-            "cache_limpo": bool(apagados),
+            "scenes": len(nomes_base),
+            "from_cache": len([n for n in nomes_base if n in ja_em_cache]),
+            "cache_cleared": bool(apagados),
             "annos": caminho_anno,
             "exp_dir": exp_dir,
             "merge": fusao,
@@ -482,14 +550,13 @@ def processar_pedido(
     resultado += falhas
     ok = sum(1 for r in resultado if r.status == "success")
 
-    # ★ PERSISTIR — o histórico durável, nos dois formatos.
+    # ★ PERSISTIR — o estado atual do programa.
     #
     # Granularidade: por GRUPO, não por cena. O build() só retorna depois das
     # 7 etapas, então é aqui o primeiro momento em que há resposta. Se o
     # processo cair antes, o trabalho caro NÃO se perde — as legendas já estão
     # no cache de meta/, e um reprocessamento pula tudo que foi feito.
     persistencia_info = {}
-    program_id = next((i.program_id for i in itens if i.program_id), None)
     if program_id and cfg_res_dir:
         try:
             persistencia_info = persistencia.gravar_respostas(
@@ -502,12 +569,47 @@ def processar_pedido(
             # Falhar ao persistir NÃO pode derrubar a resposta: o cliente já
             # tem o resultado em mãos. Registramos e seguimos.
             log.exception("falha ao persistir as respostas de %s", program_id)
-            persistencia_info = {"erro": f"{type(exc).__name__}: {exc}"}
+            persistencia_info = {"error": f"{type(exc).__name__}: {exc}"}
 
-    return {
+    envelope = {
         "items": [r.model_dump(exclude_none=True) for r in resultado],
         "summary": {"total": len(itens), "ok": ok, "errors": len(resultado) - ok},
         "groups": diagnostico_grupos,
         "persisted": persistencia_info,
         "seconds": round(time.perf_counter() - t0, 2),
     }
+
+    # ★ O SUMMARY — uma entrada por requisição, no summary/summaries.json.
+    #
+    # Vai SEPARADO do responses.jsonl de propósito: aquele guarda o estado
+    # atual do programa (as cenas), este guarda o que aconteceu em CADA
+    # execução. Misturar os dois deixaria o `summary` inconsistente com o
+    # `items` — um total de 1 num arquivo com 10 cenas.
+    if program_id and cfg_res_dir:
+        try:
+            erros_por_codigo: dict[str, int] = {}
+            for r in resultado:
+                if r.status == "error" and r.error_code:
+                    erros_por_codigo[r.error_code] = erros_por_codigo.get(r.error_code, 0) + 1
+
+            do_cache = sum(g.get("from_cache", 0) for g in diagnostico_grupos)
+            persistencia.gravar_summary(cfg_res_dir, program_id, {
+                "state": "concluded",
+                "data": persistencia._data_legivel(datetime.now(timezone.utc)),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "total": len(itens), "ok": ok, "errors": len(resultado) - ok,
+                "seconds": envelope["seconds"],
+                "scenes": [i.scene_id for i in itens],
+                "from_cache": do_cache,
+                "processed": max(0, ok - do_cache),
+                "force": pedido.force,
+                "proposal_generator": pedido.proposal_generator,
+                "mode": mode,
+                "groups": diagnostico_grupos,
+                "error_codes": erros_por_codigo,
+                "persisted": persistencia_info,
+            })
+        except Exception:  # noqa: BLE001 — o summary é diagnóstico
+            log.exception("falha ao gravar o summary de %s", program_id)
+
+    return envelope

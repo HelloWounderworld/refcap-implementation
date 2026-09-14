@@ -172,7 +172,7 @@ if ! pula 6; then
         POST /caption "$(item "$UNICA_SID" "$UNICA_VID" "$UNICA_PATH")"
         T1=$(date +%s%N); MS_CACHE=$(( (T1-T0)/1000000 ))
         S=$(J "$R" "d['items'][0]['status']")
-        EM=$(J "$R" "d['groups'][0].get('estavam_em_cache','?')")
+        EM=$(J "$R" "d['groups'][0].get('from_cache','?')")
         if [ "$S" = "success" ]; then
             ok "6. reprocessar SEM force — ${MS_CACHE}ms"
             det "estavam_em_cache: $EM   ← 1 = o BLIP não rodou de novo"
@@ -194,7 +194,7 @@ print(json.dumps(d))")
         S=$(J "$R" "d['items'][0]['status']")
         if [ "$S" = "success" ]; then
             ok "7. force: true — ${MS_FORCE}ms"
-            det "cache_limpo: $(J "$R" "d['groups'][0].get('cache_limpo')")"
+            det "cache_cleared: $(J "$R" "d['groups'][0].get('cache_cleared')")"
             if [ -n "$MS_CACHE" ] && [ "$MS_FORCE" -gt "$MS_CACHE" ]; then
                 det "★ ${MS_FORCE}ms > ${MS_CACHE}ms — reprocessou de verdade"
             elif [ -n "$MS_CACHE" ]; then
@@ -230,7 +230,7 @@ if ! pula 9; then
         O=$(J "$R" "d['summary']['ok']"); G=$(J "$R" "len(d['groups'])")
         if [ "$HTTP" = "200" ] && [ "$O" = "2" ] && [ "$G" = "2" ]; then
             ok "9. ★ lote em 2 diretórios → 2 builds"
-            det "$(J "$R" "chr(10).join('       %s cena(s) em %s' % (g['cenas'], g['diretorio']) for g in d['groups'])")"
+            det "$(J "$R" "chr(10).join('       %s cena(s) em %s' % (g['scenes'], g['directory']) for g in d['groups'])")"
         else nok "9. agrupamento" "HTTP=$HTTP ok=$O grupos=$G (esperava 2)"; fi
     fi
 fi

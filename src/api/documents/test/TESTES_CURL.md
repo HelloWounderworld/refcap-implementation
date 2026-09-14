@@ -79,70 +79,6 @@ curl -X POST $API/caption -H 'Content-Type: application/json' -d '{
 }'
 ```
 
-```bash
-curl -X POST 8000/caption -H 'Content-Type: application/json' -d '{
-  "scene_id": "cena_01",
-  "video_id": "vidA",
-  "program_id": "prog_teste",
-  "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_01.mp4"
-}'
-```
-
-```bash
-{
-  "scene_id": "cena_01",
-  "video_id": "vidA",
-  "program_id": "prog_teste",
-  "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_01.mp4"
-}
-```
-
-```bash
-{
-  "scene_id": "cena_01",
-  "video_id": "vidA",
-  "program_id": "prog_teste",
-  "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
-  "items": [
-    {
-      "scene_id": "cena_01",
-      "video_id": "vidA",
-      "program_id": "prog_teste",
-      "scene_video_path": "/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
-    }
-  ],
-  "callback_url": "string",
-  "assincrono": false,
-  "proposal_generator": "whole",
-  "force": false
-}
-```
-
-```bash
-{
-  "items": [
-    {
-      "scene_id": "cena_01",
-      "video_id": "vidA",
-      "program_id": "prog_teste",
-      "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_01.mp4"
-    },
-    {
-      "scene_id": "cena_02",
-      "video_id": "vidA",
-      "program_id": "prog_teste",
-      "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_02.mp4"
-    },
-    {
-      "scene_id": "cena_03",
-      "video_id": "vidA",
-      "program_id": "prog_teste",
-      "scene_video_path": "/caminho/montado/refletido/dentro/do/container/prog_teste/vidA/cena_03.mp4"
-    }
-  ]
-}
-```
-
 **A resposta (HTTP 200) traz o resultado completo** — a chamada aguarda o processamento:
 
 ```json
@@ -192,7 +128,7 @@ curl -s -X POST $API/caption/batch -H 'Content-Type: application/json' -d '{...}
 import sys,json
 d=json.load(sys.stdin)
 for g in d['groups']:
-    print(f\"{g['cenas']} cena(s) em {g['diretorio']}  (collection={g['collection']})\")
+    print(f\"{g['scenes']} cena(s) em {g['directory']}  (collection={g['collection']})\")
 "
 ```
 ```
@@ -259,7 +195,7 @@ time curl -s -o /dev/null -X POST $API/caption -H 'Content-Type: application/jso
 
 **Deve ser muito mais rápido** — o BLIP não roda. Confirme no `groups`:
 ```bash
-... | python3 -c "import sys,json;print('em cache:', json.load(sys.stdin)['groups'][0]['estavam_em_cache'])"
+... | python3 -c "import sys,json;print('from_cache:', json.load(sys.stdin)['groups'][0]['from_cache'])"
 ```
 
 ## 3.2 `force: true` — reprocessar de propósito
@@ -268,7 +204,7 @@ time curl -s -o /dev/null -X POST $API/caption -H 'Content-Type: application/jso
 time curl -s -X POST $API/caption -H 'Content-Type: application/json' -d '{
   "scene_id":"cena_01","video_id":"vidA","program_id":"prog_teste",
   "scene_video_path":"/tmp/teste_refcap/prog_teste/vidA/cena_01.mp4",
-  "force": true}' | python3 -c "import sys,json;print('cache_limpo:', json.load(sys.stdin)['groups'][0].get('cache_limpo'))"
+  "force": true}' | python3 -c "import sys,json;print('cache_cleared:', json.load(sys.stdin)['groups'][0].get('cache_cleared'))"
 ```
 
 **Deve ser tão lento quanto a primeira vez.** Se for rápido, o cache não foi limpo.

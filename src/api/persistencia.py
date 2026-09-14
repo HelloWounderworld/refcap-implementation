@@ -64,6 +64,31 @@ def caminho_cena(res_dir: str, program_id: str, scene_id: str) -> pathlib.Path:
     return dir_response(res_dir, program_id) / "scenes" / f"{scene_id}.json"
 
 
+def caminho_summary(res_dir: str, program_id: str) -> pathlib.Path:
+    """O arquivo ATIVO de summaries. Os rotacionados ficam ao lado."""
+    return dir_response(res_dir, program_id) / "summary" / "summaries.json"
+
+
+def caminho_history(res_dir: str, program_id: str) -> pathlib.Path:
+    return dir_response(res_dir, program_id) / "history" / "history.jsonl"
+
+
+#: Acima deste tamanho, o summaries.json é rotacionado: renomeado com a data
+#: e hora, e um novo é começado. A hora entra no nome porque um programa
+#: ativo pode passar do limite mais de uma vez no mesmo dia.
+LIMITE_SUMMARY_BYTES = int(os.environ.get("REFCAP_SUMMARY_MAX_BYTES", 5 * 1024 * 1024))
+
+
+def _data_legivel(dt: datetime) -> str:
+    """DD-MM-YYYY HH:MM:SS — para leitura humana.
+
+    Guardamos TAMBÉM o ISO em `timestamp`: este formato não ordena
+    lexicograficamente ('01-12-2026' viria antes de '08-09-2026'), então o
+    ISO é o campo que se usa para ordenar e filtrar por código.
+    """
+    return dt.strftime("%d-%m-%Y %H:%M:%S")
+
+
 # --------------------------------------------------------------------------- #
 # Gravar
 # --------------------------------------------------------------------------- #
@@ -73,56 +98,163 @@ def gravar_respostas(
     respostas: list[dict],
     extras_por_cena: dict | None = None,
 ) -> dict:
-    """Grava nos DOIS formatos e devolve um resumo do que foi escrito.
+    """Grava o ESTADO ATUAL do programa, em três lugares.
 
-    `respostas` são os dicts do contrato (scene_id, scene_caption_en, ...).
-    `extras_por_cena` mapeia scene_id → diagnóstico adicional (ranking
-    completo, n_raw, n_distinct, warnings) — guardamos tudo, como acordado.
+    ★ COMO O responses.jsonl FUNCIONA
+        Uma linha só, com o envelope do programa inteiro:
+
+            {"program_id": ..., "items": [ ...todas as cenas... ],
+             "updated_at": ...}
+
+        A cada requisição o arquivo é lido, as cenas novas são MESCLADAS por
+        `scene_id` (a nova vence), e o conjunto é reescrito. Cenas ausentes
+        da requisição permanecem.
+
+    ★ O QUE É SUBSTITUÍDO VAI PARA O history
+        Quando o merge sobrescreve uma cena, a versão antiga é registrada em
+        `history/history.jsonl` — senão ela se perderia, já que o
+        `scenes/{id}.json` também sobrescreve.
 
     ⚠️ CONCORRÊNCIA: quem garante que só um job escreve por vez é a fila
     serializada do `jobs.py`. Este módulo NÃO tem trava própria.
     """
     if not respostas:
-        return {"gravadas": 0, "jsonl": None, "scenes": None}
+        return {"written": 0, "jsonl": None, "scenes_dir": None}
 
     base = dir_response(res_dir, program_id)
     dir_scenes = base / "scenes"
     dir_scenes.mkdir(parents=True, exist_ok=True)
 
-    jsonl = caminho_jsonl(res_dir, program_id)
     extras = extras_por_cena or {}
-    momento = _agora()
+    agora = datetime.now(timezone.utc)
+    momento = agora.isoformat()
+    jsonl = caminho_jsonl(res_dir, program_id)
 
-    with open(jsonl, "a", encoding="utf-8") as f:
-        for r in respostas:
-            scene_id = r.get("scene_id")
-            if not scene_id:
-                continue
+    # --- 1. carrega o envelope anterior --------------------------------- #
+    anteriores: dict[str, dict] = {}
+    if jsonl.is_file():
+        try:
+            with open(jsonl, encoding="utf-8") as f:
+                linha = f.readline().strip()
+            if linha:
+                envelope = json.loads(linha)
+                for it in envelope.get("items", []):
+                    if it.get("scene_id"):
+                        anteriores[it["scene_id"]] = it
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning("envelope ilegível em %s (%s) — recomeçando", jsonl, exc)
 
-            registro = {
-                **r,
-                "program_id": program_id,
-                "timestamp": momento,
-            }
-            extra = extras.get(scene_id)
-            if extra:
-                registro["diagnostics"] = extra
+    # --- 2. mescla, guardando o que for substituído --------------------- #
+    substituidas = []
+    for r in respostas:
+        scene_id = r.get("scene_id")
+        if not scene_id:
+            continue
 
-            # 1) append no histórico — todas as versões ficam
-            f.write(json.dumps(registro, ensure_ascii=False) + "\n")
+        registro = {**r, "timestamp": momento}
+        extra = extras.get(scene_id)
+        if extra:
+            registro["diagnostics"] = extra
 
-            # 2) arquivo por cena — sobrescreve, é o estado atual
-            with open(caminho_cena(res_dir, program_id, scene_id), "w",
-                      encoding="utf-8") as fc:
-                json.dump(registro, fc, ensure_ascii=False, indent=2)
+        if scene_id in anteriores:
+            substituidas.append(anteriores[scene_id])
 
-    log.info("[%s] %d resposta(s) persistida(s) em %s",
-             program_id, len(respostas), base)
-    return {
-        "gravadas": len(respostas),
-        "jsonl": str(jsonl),
-        "scenes": str(dir_scenes),
+        anteriores[scene_id] = registro
+
+        # o arquivo por cena — acesso direto, sem varrer o envelope
+        with open(caminho_cena(res_dir, program_id, scene_id), "w",
+                  encoding="utf-8") as fc:
+            json.dump({**registro, "program_id": program_id}, fc,
+                      ensure_ascii=False, indent=2)
+
+    # --- 3. reescreve o envelope ---------------------------------------- #
+    envelope = {
+        "program_id": program_id,
+        "items": [anteriores[k] for k in sorted(anteriores)],
+        "updated_at": momento,
     }
+    with open(jsonl, "w", encoding="utf-8") as f:
+        f.write(json.dumps(envelope, ensure_ascii=False) + "\n")
+
+    # --- 4. o que foi substituído vai para o history --------------------- #
+    if substituidas:
+        gravar_history(res_dir, program_id, substituidas, agora,
+                       {"written": len(respostas), "jsonl": str(jsonl),
+                        "scenes_dir": str(dir_scenes)})
+
+    log.info("[%s] %d cena(s) gravada(s); %d substituída(s); %d no total",
+             program_id, len(respostas), len(substituidas), len(anteriores))
+    return {
+        "written": len(respostas),
+        "replaced": len(substituidas),
+        "total_in_program": len(anteriores),
+        "jsonl": str(jsonl),
+        "scenes_dir": str(dir_scenes),
+    }
+
+
+def gravar_history(res_dir: str, program_id: str, substituidas: list[dict],
+                   quando: datetime, persisted: dict) -> None:
+    """Registra as versões SUBSTITUÍDAS — só elas.
+
+    ★ Guardar toda versão de toda cena faria deste arquivo uma cópia do
+    responses.jsonl. Aqui fica apenas o que SERIA PERDIDO pelo merge, que é
+    o problema que um histórico resolve.
+    """
+    caminho = caminho_history(res_dir, program_id)
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    with open(caminho, "a", encoding="utf-8") as f:
+        for antiga in substituidas:
+            f.write(json.dumps({
+                "replaced_at": quando.isoformat(),
+                "data": _data_legivel(quando),
+                "reason": "overwritten",
+                "program_id": program_id,
+                "scene": antiga,
+                "persisted": persisted,
+            }, ensure_ascii=False) + "\n")
+
+
+def gravar_summary(res_dir: str, program_id: str, entrada: dict) -> dict:
+    """Acrescenta uma entrada ao summaries.json, rotacionando se preciso.
+
+    ★ ROTAÇÃO POR TAMANHO
+        Acima de LIMITE_SUMMARY_BYTES, o arquivo ativo é renomeado para
+        `summaries-DD-MM-YYYY_HHMMSS.json` e um novo é começado. A HORA entra
+        no nome porque um programa ativo pode passar do limite mais de uma
+        vez no mesmo dia — só a data colidiria.
+
+        A checagem é feita ANTES de acrescentar, então o arquivo pode passar
+        do limite por uma entrada. É o comportamento padrão de rotação, e
+        evita ter de serializar duas vezes para medir.
+    """
+    caminho = caminho_summary(res_dir, program_id)
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+
+    rotacionado = None
+    if caminho.is_file() and caminho.stat().st_size >= LIMITE_SUMMARY_BYTES:
+        agora = datetime.now(timezone.utc)
+        destino = caminho.parent / f"summaries-{agora.strftime('%d-%m-%Y_%H%M%S')}.json"
+        caminho.rename(destino)
+        rotacionado = str(destino)
+        log.info("[%s] summaries rotacionado para %s", program_id, destino.name)
+
+    dados = {"data_summary": []}
+    if caminho.is_file():
+        try:
+            with open(caminho, encoding="utf-8") as f:
+                dados = json.load(f)
+            dados.setdefault("data_summary", [])
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning("summaries ilegível (%s) — recomeçando", exc)
+            dados = {"data_summary": []}
+
+    dados["data_summary"].append(entrada)
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=2)
+
+    return {"file": str(caminho), "entries": len(dados["data_summary"]),
+            "rotated": rotacionado}
 
 
 # --------------------------------------------------------------------------- #
@@ -159,12 +291,19 @@ def ler_respostas(
 
 
 def historico_da_cena(res_dir: str, program_id: str, scene_id: str) -> list[dict]:
-    """Todas as versões de uma cena, do jsonl — em ordem cronológica."""
-    jsonl = caminho_jsonl(res_dir, program_id)
-    if not jsonl.is_file():
+    """As versões SUBSTITUÍDAS de uma cena, em ordem cronológica.
+
+    ★ Lê o `history/history.jsonl`, não o `responses.jsonl`. Este passou a
+    guardar só o estado ATUAL; as versões antigas vão para o history quando
+    o merge as substitui.
+
+    A versão vigente NÃO está aqui — ela está em `scenes/{scene_id}.json`.
+    """
+    caminho = caminho_history(res_dir, program_id)
+    if not caminho.is_file():
         return []
     versoes = []
-    with open(jsonl, encoding="utf-8") as f:
+    with open(caminho, encoding="utf-8") as f:
         for linha in f:
             linha = linha.strip()
             if not linha:
@@ -173,9 +312,26 @@ def historico_da_cena(res_dir: str, program_id: str, scene_id: str) -> list[dict
                 r = json.loads(linha)
             except json.JSONDecodeError:
                 continue
-            if r.get("scene_id") == scene_id:
+            if r.get("scene", {}).get("scene_id") == scene_id:
                 versoes.append(r)
     return versoes
+
+
+def ler_summaries(res_dir: str, program_id: str, limite: int = 0) -> list[dict]:
+    """As entradas do summaries.json ATIVO, da mais recente para a mais antiga.
+
+    Não lê os arquivos rotacionados — eles ficam ao lado, para consulta manual.
+    """
+    caminho = caminho_summary(res_dir, program_id)
+    if not caminho.is_file():
+        return []
+    try:
+        with open(caminho, encoding="utf-8") as f:
+            entradas = json.load(f).get("data_summary", [])
+    except (json.JSONDecodeError, OSError):
+        return []
+    entradas = list(reversed(entradas))
+    return entradas[:limite] if limite > 0 else entradas
 
 
 # --------------------------------------------------------------------------- #
@@ -194,13 +350,13 @@ def fundir_proposals(exp_dir: str, proposals_file: str) -> dict:
     Cenas reprocessadas SOBRESCREVEM as versões antigas (o novo vence).
     """
     if not exp_dir:
-        return {"fundidas": 0, "total": 0}
+        return {"merged": 0, "total": 0}
 
     atual = pathlib.Path(exp_dir) / proposals_file
     acumulado = pathlib.Path(exp_dir) / "proposals_acumulado.json"
 
     if not atual.is_file():
-        return {"fundidas": 0, "total": 0}
+        return {"merged": 0, "total": 0}
 
     with open(atual, encoding="utf-8") as f:
         novas = json.load(f)
@@ -222,7 +378,7 @@ def fundir_proposals(exp_dir: str, proposals_file: str) -> dict:
 
     log.info("proposals fundido: %d nova(s), %d no total",
              len(novas), len(fundido))
-    return {"fundidas": len(novas), "total": len(fundido)}
+    return {"merged": len(novas), "total": len(fundido)}
 
 
 # --------------------------------------------------------------------------- #
