@@ -359,7 +359,7 @@ def processar_job(job: Job) -> dict:
 
 Depois: `build(cfg, modelos.como_dict())` e a transformação da saída.
 
-**[L] O `from construct import build` é tardio** — depois que `preparar_sys_path()` já rodou no startup. No topo do arquivo, falharia.
+**[L] O `from construct_new import build` é tardio** — depois que `preparar_sys_path()` já rodou no startup. No topo do arquivo, falharia.
 
 ## 5.5 ★ ATUALIZADO — As seis rotas
 
