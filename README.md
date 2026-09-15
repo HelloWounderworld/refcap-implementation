@@ -53,8 +53,14 @@ refcap-implementation/
 │   └── tests/                      notas de teste
 │
 ├── src/                         ★ O CÓDIGO
+│   ├── annos/                        
 │   ├── api/                        O SERVIÇO HTTP  ← o que nós construímos
-│   ├── config/ dataset/ pipeline/ utils/     O REFCAP (com 5 patches)
+│   ├── config/                        
+│   ├── dataset/                        
+│   ├── meta/                        
+│   ├── movies/                        
+│   ├── pipeline/                        
+│   ├── utils/                        
 │   ├── construct.py                a etapa de construção
 │   ├── retrieve.py                 a etapa de busca (fora do escopo)
 │   ├── make_annos.py               gera as anotações
@@ -67,6 +73,7 @@ refcap-implementation/
 ├── requirements.txt             dependências de execução
 ├── requirements-test.txt        dependências de teste
 └── code_analysis.md             notas sobre o código original
+└── README.md             notas sobre o código original
 ```
 
 ---

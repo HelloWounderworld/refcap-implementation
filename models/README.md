@@ -1,0 +1,1 @@
+# Diretorio onde precisa vir os modelos que sao baixados localmente!

@@ -1,0 +1,1 @@
+# Diretorio onde sera feito um mount com o outro servidor que contem as cenas oficiais para realizar o construct.

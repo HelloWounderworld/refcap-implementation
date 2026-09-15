@@ -1,0 +1,1 @@
+# Diretorio onde havera cenas para teste e que serao movidos para o diretorio ./scr/movies para realizar um teste local, primeiro, para verificar se esta tudo funcionando o processo de construct.
