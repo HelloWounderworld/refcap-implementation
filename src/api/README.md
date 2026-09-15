@@ -1,16 +1,12 @@
 # Caption API — Legendagem de Cenas com RefCap
 
-Serviço HTTP que gera legendas em inglês para cenas de vídeo, usando o
-[RefCap](https://github.com/BUAAPY/RefCap) com os modelos **residentes em
-memória** — carregados uma vez, reutilizados em todas as requisições.
+Serviço HTTP que gera legendas em inglês para cenas de vídeo, usando o [RefCap](https://github.com/BUAAPY/RefCap) com os modelos **residentes em memória** — carregados uma vez, reutilizados em todas as requisições.
 
 ---
 
 ## O problema que o serviço resolve
 
-O RefCap original é uma ferramenta de linha de comando: cada execução carrega
-os modelos, processa, e morre. Para um vídeo isso custa ~20 s só de
-carregamento — e para mil cenas, ~5,5 horas desperdiçadas.
+O RefCap original é uma ferramenta de linha de comando: cada execução carrega os modelos, processa, e morre. Para um vídeo isso custa ~20 s só de carregamento — e para mil cenas, ~5,5 horas desperdiçadas.
 
 Este serviço inverte isso:
 
@@ -68,31 +64,22 @@ Este serviço inverte isso:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**A regra que mantém isso limpo:** as rotas importam de `estado.py`, nunca de
-`app.py`. É o que evita o import circular — o `app.py` importa as rotas, e as
-rotas não importam o `app.py`.
+**A regra que mantém isso limpo:** as rotas importam de `estado.py`, nunca de `app.py`. É o que evita o import circular — o `app.py` importa as rotas, e as rotas não importam o `app.py`.
 
 ---
 
 ## Os módulos, um a um
 
 ### `app.py` — ciclo de vida
-Sobe o serviço, carrega os modelos no startup, registra as rotas, libera os
-modelos no shutdown. **Nada mais.** É o arquivo que você lê primeiro para
-entender o serviço, e o menor de todos.
+Sobe o serviço, carrega os modelos no startup, registra as rotas, libera os modelos no shutdown. **Nada mais.** É o arquivo que você lê primeiro para entender o serviço, e o menor de todos.
 
 ### `estado.py` — o que todos compartilham
-Os modelos residentes, a fila de jobs, e a configuração via ambiente.
-Não importa ninguém — é o que permite que rotas e `app.py` compartilhem estado
-sem se importarem mutuamente.
+Os modelos residentes, a fila de jobs, e a configuração via ambiente. Não importa ninguém — é o que permite que rotas e `app.py` compartilhem estado sem se importarem mutuamente.
 
 ### `contratos.py` — o que entra e o que sai
-Os modelos Pydantic (`CaptionRequest`, `SceneItem`, `SceneResponse`,
-`Keyword`) e os cinco códigos de erro. **Quem consome a API só precisa ler
-este arquivo.**
+Os modelos Pydantic (`CaptionRequest`, `SceneItem`, `SceneResponse`, `Keyword`) e os cinco códigos de erro. **Quem consome a API só precisa ler este arquivo.**
 
-As duas formas de requisição — cena única e lote — são normalizadas numa lista
-só pelo `como_itens()`, de modo que o processamento não tem dois caminhos.
+As duas formas de requisição — cena única e lote — são normalizadas numa lista só pelo `como_itens()`, de modo que o processamento não tem dois caminhos.
 
 ### `captioning.py` — o pipeline
 O coração. Em seis passos:
@@ -107,8 +94,7 @@ O coração. Em seis passos:
 | 6 | **transformar** | do `proposals` ao contrato de resposta |
 
 ### `persistencia.py` — o que fica em disco
-Grava o estado atual do programa, o registro de cada execução, e o que foi
-substituído. Ver *Estrutura em disco*, abaixo.
+Grava o estado atual do programa, o registro de cada execução, e o que foi substituído. Ver *Estrutura em disco*, abaixo.
 
 ### `carregador.py` — os quatro modelos
 | modelo | para quê | onde |
@@ -118,23 +104,15 @@ substituído. Ver *Estrutura em disco*, abaixo.
 | sentence-transformer | similaridade entre legendas | GPU |
 | spaCy | extrai substantivos e verbos | RAM |
 
-O GloVe **não** é carregado — ele só é usado no `retrieve`, que está fora do
-escopo deste serviço.
+O GloVe **não** é carregado — ele só é usado no `retrieve`, que está fora do escopo deste serviço.
 
 ### `jobs.py` — a fila
-Um job por vez. Não é para throughput — é para **não haver dois processos
-disputando a GPU**, e para que dois jobs não escrevam no mesmo arquivo ao
-mesmo tempo.
+Um job por vez. Não é para throughput — é para **não haver dois processos disputando a GPU**, e para que dois jobs não escrevam no mesmo arquivo ao mesmo tempo.
 
 ### `ponte_refcap.py` — o isolamento
-Põe a raiz do RefCap no `sys.path`, converte os caminhos relativos do `cfg.py`
-em absolutos, e **recusa subir o serviço** se algum arquivo da API colidir com
-um módulo de topo do RefCap (`pipeline`, `config`, `dataset`, `utils`…).
+Põe a raiz do RefCap no `sys.path`, converte os caminhos relativos do `cfg.py` em absolutos, e **recusa subir o serviço** se algum arquivo da API colidir com um módulo de topo do RefCap (`pipeline`, `config`, `dataset`, `utils`…).
 
-> Essa checagem existe porque um arquivo chamado `pipeline.py` dentro de `api/`
-> sequestra o `import pipeline` do RefCap, e o `construct.py` quebra com
-> `No module named 'pipeline.denoiser'` — um erro que só aparece no meio do
-> captioning.
+> Essa checagem existe porque um arquivo chamado `pipeline.py` dentro de `api/` sequestra o `import pipeline` do RefCap, e o `construct.py` quebra com `No module named 'pipeline.denoiser'` — um erro que só aparece no meio do captioning.
 
 ---
 
@@ -152,8 +130,7 @@ O que acontece dentro do `build()`, para uma cena:
 7. build_tree_meta       a estrutura hierárquica
 ```
 
-As etapas 4 e 6 rodam sempre — mas só sobre as cenas da requisição, porque o
-`annos` funciona como **seletor**: `vid_list = os.listdir(video_root) ∩ annos`.
+As etapas 4 e 6 rodam sempre — mas só sobre as cenas da requisição, porque o `annos` funciona como **seletor**: `vid_list = os.listdir(video_root) ∩ annos`.
 
 ---
 
@@ -190,8 +167,7 @@ As etapas 4 e 6 rodam sempre — mas só sobre as cenas da requisição, porque 
 | `results/.../proposals.json` | sobrescrito pelo RefCap, **fundido** logo depois ✓ |
 | `annos/{program_id}/vcmr.jsonl` | **sobrescrito** — é o seletor, não um registro |
 
-> **O `meta/` é o ativo mais valioso.** Perdê-lo significa refazer todo o
-> captioning. Num deploy em Docker, ele precisa de volume.
+> **O `meta/` é o ativo mais valioso.** Perdê-lo significa refazer todo o captioning. Num deploy em Docker, ele precisa de volume.
 
 ---
 
@@ -206,11 +182,9 @@ As etapas 4 e 6 rodam sempre — mas só sobre as cenas da requisição, porque 
 
 Em lote: `{"items": [ {...}, {...} ]}`.
 
-Opcionais: `force` (reprocessa, limpando o cache daquelas cenas),
-`assincrono`, `proposal_generator`, `callback_url`.
+Opcionais: `force` (reprocessa, limpando o cache daquelas cenas), `assincrono`, `proposal_generator`, `callback_url`.
 
-**`collection` não é aceito** — ele é derivado do `program_id`. Aceitar um
-override quebraria o isolamento entre programas.
+**`collection` não é aceito** — ele é derivado do `program_id`. Aceitar um override quebraria o isolamento entre programas.
 
 ### Resposta
 
@@ -236,41 +210,28 @@ override quebraria o isolamento entre programas.
 | `CAPTION_FAILED` | o pipeline rodou e não produziu legenda |
 | `INTERNAL_ERROR` | exceção inesperada |
 
-Erros de **cena** vêm com HTTP 200, dentro do item. O HTTP só vira 4xx/5xx
-quando a requisição inteira é inválida.
+Erros de **cena** vêm com HTTP 200, dentro do item. O HTTP só vira 4xx/5xx quando a requisição inteira é inválida.
 
 ---
 
 ## Decisões de projeto, e por quê
 
 ### `collection = program_id`
-Um identificador governa os cinco caminhos do RefCap. É isso que garante que
-dois programas nunca compartilhem cache — e que a mesma `scene_id` em
-programas diferentes não devolva a legenda errada.
+Um identificador governa os cinco caminhos do RefCap. É isso que garante que dois programas nunca compartilhem cache — e que a mesma `scene_id` em programas diferentes não devolva a legenda errada.
 
 ### `construct_name = ""`
-Colapsa o último nível do `exp_dir`, deixando os artefatos em
-`results/construct/{program_id}/` — cumulativos por programa, em vez de um
-diretório por execução.
+Colapsa o último nível do `exp_dir`, deixando os artefatos em `results/construct/{program_id}/` — cumulativos por programa, em vez de um diretório por execução.
 
 ### `weight = 1.0`, fixo
-A ponderação anterior (0,6 literal + 0,4 semântico) foi **suspensa**, não
-apagada: o `paraphrase-distilroberta-v2` foi treinado para comparar
-*sentenças*, não palavras isoladas, e os pesos nunca foram calibrados. O
-cálculo está preservado em comentário, com as alternativas a avaliar.
+A ponderação anterior (0,6 literal + 0,4 semântico) foi **suspensa**, não apagada: o `paraphrase-distilroberta-v2` foi treinado para comparar *sentenças*, não palavras isoladas, e os pesos nunca foram calibrados. O cálculo está preservado em comentário, com as alternativas a avaliar.
 
-Como só entram palavras **literalmente presentes na legenda**, 1.0 é coerente:
-não há gradação a expressar.
+Como só entram palavras **literalmente presentes na legenda**, 1.0 é coerente: não há gradação a expressar.
 
 ### Síncrono por padrão, assíncrono acima de 30 cenas
-O gargalo não é processamento — é a **conexão HTTP**. Uma cena leva ~1–3 s,
-então 30 já se aproximam do timeout típico de proxy. Acima disso a API devolve
-202 e processa em segundo plano; nada se perde, o resultado fica persistido.
+O gargalo não é processamento — é a **conexão HTTP**. Uma cena leva ~1–3 s, então 30 já se aproximam do timeout típico de proxy. Acima disso a API devolve 202 e processa em segundo plano; nada se perde, o resultado fica persistido.
 
 ### O fallback removido
-Havia um atalho: "se o diretório tem um vídeo só, use ele". Isso legendava o
-arquivo errado **em silêncio**, devolvendo `status: success`. Hoje falha com
-`SCENE_NOT_FOUND`.
+Havia um atalho: "se o diretório tem um vídeo só, use ele". Isso legendava o arquivo errado **em silêncio**, devolvendo `status: success`. Hoje falha com `SCENE_NOT_FOUND`.
 
 ---
 
@@ -295,14 +256,9 @@ cd api && python app.py               # desenvolvimento
 uvicorn app:app --host 0.0.0.0 --port 8000   # produção
 ```
 
-**Variáveis** (ver `estado.py`):
-`REFCAP_CAPTION_MODEL`, `REFCAP_BLIP_ITM_MODEL`,
-`REFCAP_SENTENCE_TRANSFORMER` — caminhos **absolutos** para os modelos locais;
-`REFCAP_DEVICE`, `REFCAP_LIMIAR_ASSINCRONO`, `REFCAP_CARREGAR_MODELOS=0`
-(sobe sem modelos, para testar rotas).
+**Variáveis** (ver `estado.py`): `REFCAP_CAPTION_MODEL`, `REFCAP_BLIP_ITM_MODEL`, `REFCAP_SENTENCE_TRANSFORMER` — caminhos **absolutos** para os modelos locais; `REFCAP_DEVICE`, `REFCAP_LIMIAR_ASSINCRONO`, `REFCAP_CARREGAR_MODELOS=0` (sobe sem modelos, para testar rotas).
 
-Em Docker, ver [`DOCKER.md`](api/DOCKER.md) — atenção especial ao bind-mount
-das cenas e à persistência do `meta/`.
+Em Docker, ver [`DOCKER.md`](api/DOCKER.md) — atenção especial ao bind-mount das cenas e à persistência do `meta/`.
 
 ---
 
@@ -314,17 +270,13 @@ bash preparar_teste.sh         # mapeia as suas cenas
 bash teste_manual.sh           # 20 combinações
 ```
 
-Ver [`README_TESTES.md`](api/README_TESTES.md), [`TESTES_CURL.md`](api/TESTES_CURL.md)
-e [`TESTES_DIAGNOSTICO.md`](api/TESTES_DIAGNOSTICO.md).
+Ver [`README_TESTES.md`](api/README_TESTES.md), [`TESTES_CURL.md`](api/TESTES_CURL.md) e [`TESTES_DIAGNOSTICO.md`](api/TESTES_DIAGNOSTICO.md).
 
 ---
 
 ## Limites conhecidos
 
 - **A função de `weight`** está suspensa até a decisão sobre o GloVe.
-- **O `retrieve.py`** está fora do escopo; ele lê o `annos` e o `prop_sims`, e
-  espera o `construct_name` no caminho.
-- **Três arquivos são carregados inteiros** a cada requisição (legendas,
-  features, scores). Com 10 cenas é irrelevante; com milhares, o `torch.load`
-  passa a dominar o tempo de uma requisição de uma cena só.
+- **O `retrieve.py`** está fora do escopo; ele lê o `annos` e o `prop_sims`, e espera o `construct_name` no caminho.
+- **Três arquivos são carregados inteiros** a cada requisição (legendas, features, scores). Com 10 cenas é irrelevante; com milhares, o `torch.load` passa a dominar o tempo de uma requisição de uma cena só.
 - **A suíte de testes da API** cobre os cenários essenciais, não a totalidade.
