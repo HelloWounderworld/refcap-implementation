@@ -45,9 +45,7 @@ refcap-implementation/
 │   └── sample-env.txt              modelo do .env (USERNAME, UID, PORT…)
 │
 ├── documents/                   ★ A DOCUMENTAÇÃO DE PROJETO
-│   ├── article/                    o paper do RefCap e o do GloVe
 │   ├── code_analysis/              análise do código original
-│   ├── commandments/               convenções e regras do projeto
 │   ├── construct_instructions/     como o construct funciona
 │   ├── retrieval_instructions/     o lado do retrieve (fora do escopo hoje)
 │   ├── enviroment_settings/        preparo do ambiente
